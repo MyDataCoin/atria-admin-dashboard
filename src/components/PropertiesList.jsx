@@ -21,7 +21,6 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatVal } from '../utils';
 
 export default function PropertiesList({ 
   properties, 
@@ -378,9 +377,11 @@ export default function PropertiesList({
                   {prop.status === 'active' ? 'В портфеле' : prop.status === 'draft' ? 'Черновик' : 'Архив'}
                 </span>
 
-                <span className="absolute bottom-3 right-3 bg-[#111111]/80 backdrop-blur-xs text-white text-[8px] font-mono tracking-widest px-2.5 py-1 uppercase rounded">
-                  {prop.tokenSymbol}
-                </span>
+                {prop.type && (
+                  <span className="absolute bottom-3 right-3 bg-[#111111]/80 backdrop-blur-xs text-white text-[8px] font-mono tracking-widest px-2.5 py-1 uppercase rounded">
+                    {prop.type}
+                  </span>
+                )}
               </div>
 
               {/* Body Details */}
@@ -498,32 +499,31 @@ export default function PropertiesList({
 
                 <div className="absolute bottom-4 left-6 text-white">
                   <span className="text-[8px] font-mono uppercase tracking-widest text-[#A38D6D] font-bold block mb-1">
-                    Эмиссионный паспорт актива
+                    Карточка объекта
                   </span>
                   <h3 className="text-xl font-serif font-bold leading-tight">
                     {selectedProp.name}
                   </h3>
                   <p className="text-[10px] text-gray-300 font-mono mt-0.5 uppercase tracking-wide">
-                    {selectedProp.city}, {selectedProp.country} • {selectedProp.tokenSymbol}
+                    {selectedProp.city}, {selectedProp.country} • {selectedProp.type}
                   </p>
                 </div>
               </div>
 
               {/* Navigation Sub-Tabs inside property detail */}
-              <div className="flex border-b border-gray-150 bg-[#FBFBFA] shrink-0 text-xs font-semibold uppercase tracking-wider font-mono">
+              <div className="flex border-b border-gray-150 bg-[#FBFBFA] shrink-0 font-semibold uppercase tracking-wider font-mono">
                 {[
-                  { id: 'info', label: 'Данные токенов' },
+                  { id: 'info', label: 'Об объекте' },
                   { id: 'docs', label: 'Документы' },
-                  { id: 'collateral', label: 'Обеспечение' },
                   { id: 'news', label: 'Финотчеты & Новости' },
                   { id: 'holders', label: 'Доли инвесторов' }
                 ].map((tab) => (
                   <button
                     key={tab.id}
                     onClick={() => setActiveSubTab(tab.id)}
-                    className={`flex-1 py-3 text-center border-b-2 text-[9px] sm:text-[10px] transition-all cursor-pointer ${
-                      activeSubTab === tab.id 
-                        ? 'border-[#A38D6D] text-[#A38D6D] bg-white font-bold' 
+                    className={`flex-1 py-3.5 text-center border-b-2 text-[10px] sm:text-[11px] transition-all cursor-pointer ${
+                      activeSubTab === tab.id
+                        ? 'border-[#A38D6D] text-[#A38D6D] bg-white font-bold'
                         : 'border-transparent text-gray-400 hover:text-gray-800'
                     }`}
                   >
@@ -535,81 +535,52 @@ export default function PropertiesList({
               {/* Sub-Tab content scrolls */}
               <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 
-                {/* TAB 1: INFO & REGISTRATION */}
+                {/* TAB 1: OBJECT INFO (данные, заданные при создании) */}
                 {activeSubTab === 'info' && (
-                  <div className="space-y-6">
+                  <div className="space-y-7">
                     {selectedProp.description && (
-                      <div className="border-l-2 border-[#A38D6D] pl-4">
-                        <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider block mb-1">Описание объекта</span>
-                        <p className="text-xs text-gray-700 leading-relaxed">{selectedProp.description}</p>
+                      <div>
+                        <h4 className="text-sm font-serif font-bold text-gray-900 mb-2">Описание объекта</h4>
+                        <p className="text-sm text-gray-600 leading-relaxed">{selectedProp.description}</p>
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-xs font-mono">
-                      {selectedProp.address && (
-                        <div className="border-b border-gray-50 pb-2 sm:col-span-2">
-                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Полный адрес</span>
-                          <span className="font-bold text-gray-900 flex items-center gap-1">
-                            <MapPin size={12} className="text-[#A38D6D]" /> {selectedProp.address}
-                          </span>
+                    <div>
+                      <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Характеристики объекта</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+                        {selectedProp.address && (
+                          <div className="sm:col-span-2 border-b border-gray-100 pb-2.5">
+                            <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Полный адрес</span>
+                            <span className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                              <MapPin size={14} className="text-[#A38D6D] shrink-0" /> {selectedProp.address}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="border-b border-gray-100 pb-2.5">
+                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Тип недвижимости</span>
+                          <span className="text-sm font-semibold text-gray-900">{selectedProp.type || '—'}</span>
                         </div>
-                      )}
 
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Застройщик</span>
-                        <span className="font-bold text-gray-900">{selectedProp.developer || '—'}</span>
-                      </div>
+                        <div className="border-b border-gray-100 pb-2.5">
+                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Город / Страна</span>
+                          <span className="text-sm font-semibold text-gray-900">{selectedProp.city}, {selectedProp.country}</span>
+                        </div>
 
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Этажность</span>
-                        <span className="font-bold text-gray-900">{selectedProp.floors ? `${selectedProp.floors} эт.` : '—'}</span>
-                      </div>
-                    </div>
+                        <div className="border-b border-gray-100 pb-2.5">
+                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Застройщик</span>
+                          <span className="text-sm font-semibold text-gray-900">{selectedProp.developer || '—'}</span>
+                        </div>
 
-                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded text-xs leading-relaxed text-amber-900">
-                      <div className="flex items-center gap-2 font-bold mb-1.5 text-amber-950 font-serif">
-                        <Award size={14} className="text-[#A38D6D]" />
-                        <span>Регистрация выпуска в Департаменте Долговых Обязательств</span>
-                      </div>
-                      Каждая выпущенная акция токенизирована в качестве "безусловного регистрового ценного права" согласно Кодексу Законов Швейцарии. Выпуск привязан к публичному смарт-контракту.
-                    </div>
+                        <div className="border-b border-gray-100 pb-2.5">
+                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Этажность</span>
+                          <span className="text-sm font-semibold text-gray-900">{selectedProp.floors ? `${selectedProp.floors} эт.` : '—'}</span>
+                        </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-xs font-mono">
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Государственный рег. номер</span>
-                        <span className="font-bold text-gray-900">{selectedProp.registrationNumber || 'CH-REG-8822'}</span>
-                      </div>
-                      
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Статус соответствия выпуска</span>
-                        <span className="font-bold text-emerald-600 flex items-center gap-1">
-                          <CheckCircle size={12} /> {selectedProp.registrationStatus || 'Registered'}
-                        </span>
-                      </div>
-
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Файл White Paper</span>
-                        <span className="font-bold text-gray-800 flex items-center gap-1 underline cursor-pointer hover:text-[#A38D6D]">
-                          <FileText size={12} className="text-[#A38D6D]" />
-                          {selectedProp.whitePaperFile || 'White_Paper_v1.0.pdf'}
-                        </span>
-                      </div>
-
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Контракт RWA в блокчейне</span>
-                        <span className="font-bold text-gray-600 flex items-center gap-1 truncate max-w-[200px]" title={selectedProp.tokenAddress}>
-                          <ExternalLink size={12} /> {selectedProp.tokenAddress || '0xAtria...'}
-                        </span>
-                      </div>
-
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Блокчейн-Сеть</span>
-                        <span className="font-bold text-gray-800">{selectedProp.blockchainNetwork || 'Ethereum'}</span>
-                      </div>
-
-                      <div className="border-b border-gray-50 pb-2">
-                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Номинальная цена токена</span>
-                        <span className="font-bold text-gray-900">{formatVal(selectedProp.tokenPrice, currency)} / {selectedProp.tokenSymbol}</span>
+                        <div className="border-b border-gray-100 pb-2.5">
+                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Год постройки</span>
+                          <span className="text-sm font-semibold text-gray-900">{selectedProp.completionYear || '—'}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -688,42 +659,7 @@ export default function PropertiesList({
                   </div>
                 )}
 
-                {/* TAB 3: COLLATERAL / APPRAISAL */}
-                {activeSubTab === 'collateral' && (
-                  <div className="space-y-6">
-                    <div className="border-l-2 border-[#A38D6D] pl-4 space-y-1">
-                      <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider block">Обеспечение выпуска</span>
-                      <h4 className="text-sm font-serif font-bold text-gray-900">Залоговое покрытие и Оценка</h4>
-                    </div>
-
-                    <div className="bg-amber-50/20 border border-[#A38D6D]/20 p-5 rounded space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
-                        <div>
-                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Оценочная стоимость Savills</span>
-                          <span className="font-bold text-lg text-gray-900">{formatVal(selectedProp.appraisalValue || selectedProp.currentValuation, currency)}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Статус залога в реестре</span>
-                          <span className="font-bold text-[#A38D6D] uppercase text-xs">{selectedProp.pledgeStatus || 'Registered Pledge'}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Управляющий залогом (Collateral Trustee)</span>
-                          <span className="font-bold text-gray-800">{selectedProp.pledgeTrustee || 'Helvetic Trust AG'}</span>
-                        </div>
-                        <div>
-                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Покрытие обязательств</span>
-                          <span className="font-bold text-emerald-600 uppercase text-xs">{selectedProp.collateralStatus || '100% Fully Covered'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-gray-500 leading-relaxed">
-                      В случае ликвидации или обратного выкупа, независимый управляющий залогом (Collateral Trustee) осуществляет продажу объекта и возвращает вырученные средства держателям токенов {selectedProp.tokenSymbol} в соответствии с процедурой выкупа.
-                    </p>
-                  </div>
-                )}
-
-                {/* TAB 4: PUBLISH NEWS & REPORT */}
+                {/* TAB: PUBLISH NEWS & REPORT */}
                 {activeSubTab === 'news' && (
                   <div className="space-y-6">
                     <div>

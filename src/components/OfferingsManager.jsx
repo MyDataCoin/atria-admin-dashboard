@@ -27,18 +27,13 @@ export default function OfferingsManager({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newOffering, setNewOffering] = useState({
     propertyId: '',
-    targetAmount: 500000,
+    tokenSupply: 10000,
     tokenPrice: 50,
+    targetAmount: 500000,
     description: '',
   });
 
   const [activeTab, setActiveTab] = useState('all'); // all, active, completed, draft
-
-  // Сколько всего токенов будет выпущено = целевой капитал / цена токена
-  const computedTokenSupply =
-    Number(newOffering.tokenPrice) > 0
-      ? Math.round(Number(newOffering.targetAmount) / Number(newOffering.tokenPrice))
-      : 0;
 
   const handleCreateOffering = (e) => {
     e.preventDefault();
@@ -53,7 +48,7 @@ export default function OfferingsManager({
       propertyName: matchedProp.name,
       targetAmount: Number(newOffering.targetAmount),
       raisedAmount: 0,
-      tokenSupply: computedTokenSupply,
+      tokenSupply: Number(newOffering.tokenSupply),
       tokenPrice: Number(newOffering.tokenPrice),
       status: 'draft',
       launchDate: new Date().toISOString().split('T')[0],
@@ -417,14 +412,6 @@ export default function OfferingsManager({
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Целевой капитал ($)</label>
-                    <input
-                      type="number" required placeholder="Например: 600000"
-                      value={newOffering.targetAmount} onChange={(e) => setNewOffering({...newOffering, targetAmount: Number(e.target.value)})}
-                      className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
-                    />
-                  </div>
-                  <div>
                     <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за 1 токен ($)</label>
                     <input
                       type="number" required placeholder="50" min="1"
@@ -432,16 +419,23 @@ export default function OfferingsManager({
                       className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
                     />
                   </div>
+                  <div>
+                    <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Всего токенов к выпуску</label>
+                    <input
+                      type="number" required placeholder="Например: 10000" min="1"
+                      value={newOffering.tokenSupply} onChange={(e) => setNewOffering({...newOffering, tokenSupply: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
+                    />
+                  </div>
                 </div>
 
-                {/* Live: сколько всего токенов будет выпущено */}
-                <div className="flex items-center justify-between bg-[#FAF8F3]/70 border border-[#A38D6D]/30 rounded p-3">
-                  <span className="text-[9px] uppercase font-bold text-gray-500 tracking-wider font-mono">
-                    Всего токенов к выпуску
-                  </span>
-                  <span className="text-sm font-bold font-mono text-[#A38D6D]">
-                    {computedTokenSupply.toLocaleString()} токенов
-                  </span>
+                <div>
+                  <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Целевой капитал ($)</label>
+                  <input
+                    type="number" required placeholder="Например: 600000" min="0"
+                    value={newOffering.targetAmount} onChange={(e) => setNewOffering({...newOffering, targetAmount: Number(e.target.value)})}
+                    className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
+                  />
                 </div>
 
                 <div>
