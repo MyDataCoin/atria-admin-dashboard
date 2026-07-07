@@ -36,6 +36,7 @@ export default function SupportTickets({
   onAddLog 
 }) {
   const [selectedTicketId, setSelectedTicketId] = useState(null);
+  const [readTicketIds, setReadTicketIds] = useState(() => new Set());
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // all, Open, Answered, Resolved
   const [filterCategory, setFilterCategory] = useState('all');
@@ -316,6 +317,11 @@ export default function SupportTickets({
               filteredTickets.map((t) => {
                 const isSelected = t.id === selectedTicketId;
                 const lastMsg = t.messages[t.messages.length - 1];
+                // "Непрочитанное" = обращение открыто и последнее сообщение от инвестора
+                const isUnread =
+                  t.status === 'Open' &&
+                  lastMsg?.sender === 'investor' &&
+                  !readTicketIds.has(t.id);
 
                 let statusBadge = '';
                 if (t.status === 'Open') statusBadge = 'bg-rose-50 text-rose-800 border-rose-200';
@@ -329,29 +335,58 @@ export default function SupportTickets({
                 return (
                   <div
                     key={t.id}
-                    onClick={() => setSelectedTicketId(t.id)}
-                    className={`p-4 text-left cursor-pointer transition-all hover:bg-gray-50/50 relative ${
-                      isSelected ? 'bg-[#FAF8F3]/90 border-l-4 border-l-[#A38D6D]' : ''
+                    onClick={() => {
+                      setSelectedTicketId(t.id);
+                      if (isUnread) {
+                        setReadTicketIds((prev) => new Set(prev).add(t.id));
+                      }
+                    }}
+                    className={`p-4 text-left cursor-pointer transition-all relative ${
+                      isSelected
+                        ? 'bg-[#FAF8F3]/90 border-l-4 border-l-[#A38D6D]'
+                        : isUnread
+                          ? 'bg-rose-50/40 border-l-4 border-l-rose-500 hover:bg-rose-50/70'
+                          : 'hover:bg-gray-50/50'
                     }`}
                   >
                     <div className="flex justify-between items-start gap-2">
-                      <span className="text-[9px] font-mono text-gray-400 font-semibold">{t.id}</span>
-                      <span className={`text-[8px] uppercase font-mono tracking-wider px-1.5 py-0.5 rounded border ${statusBadge}`}>
-                        {t.status === 'Open' ? 'Новый' : t.status === 'Answered' ? 'Отвечен' : 'Решен'}
+                      <span className="flex items-center gap-1.5">
+                        {isUnread && (
+                          <span className="relative flex h-2 w-2 shrink-0" title="Непрочитанное сообщение">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
+                            <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
+                          </span>
+                        )}
+                        <span className="text-[9px] font-mono text-gray-400 font-semibold">{t.id}</span>
                       </span>
+                      {isUnread ? (
+                        <span className="text-[8px] uppercase font-mono tracking-wider px-1.5 py-0.5 rounded bg-rose-500 text-white font-bold shadow-sm">
+                          Новое
+                        </span>
+                      ) : (
+                        <span className={`text-[8px] uppercase font-mono tracking-wider px-1.5 py-0.5 rounded border ${statusBadge}`}>
+                          {t.status === 'Open' ? 'Новый' : t.status === 'Answered' ? 'Отвечен' : 'Решен'}
+                        </span>
+                      )}
                     </div>
 
-                    <h4 className="text-xs font-bold text-gray-900 mt-1 font-serif line-clamp-1">
+                    <h4 className={`text-xs mt-1 font-serif line-clamp-1 ${
+                      isUnread ? 'font-extrabold text-gray-900' : 'font-bold text-gray-900'
+                    }`}>
                       {t.subject}
                     </h4>
 
-                    <div className="flex items-center gap-1.5 mt-1 text-[10px] text-gray-500 font-medium">
+                    <div className={`flex items-center gap-1.5 mt-1 text-[10px] font-medium ${
+                      isUnread ? 'text-gray-700' : 'text-gray-500'
+                    }`}>
                       <User size={10} className="text-gray-400 shrink-0" />
                       <span className="truncate">{t.investorName}</span>
                     </div>
 
                     {lastMsg && (
-                      <p className="text-[10px] text-gray-400 mt-2 line-clamp-1 italic">
+                      <p className={`text-[10px] mt-2 line-clamp-1 italic ${
+                        isUnread ? 'text-gray-600 font-medium' : 'text-gray-400'
+                      }`}>
                         "{lastMsg.text}"
                       </p>
                     )}

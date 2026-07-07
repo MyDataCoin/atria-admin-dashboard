@@ -9,8 +9,7 @@ import {
   Flame, 
   Plus, 
   Users, 
-  FileCheck, 
-  ShieldCheck, 
+  FileCheck,
   Compass,
   ArrowRight
 } from 'lucide-react';
@@ -31,10 +30,15 @@ export default function OfferingsManager({
     targetAmount: 500000,
     tokenPrice: 50,
     description: '',
-    whitelistRequired: true,
   });
 
   const [activeTab, setActiveTab] = useState('all'); // all, active, completed, draft
+
+  // Сколько всего токенов будет выпущено = целевой капитал / цена токена
+  const computedTokenSupply =
+    Number(newOffering.tokenPrice) > 0
+      ? Math.round(Number(newOffering.targetAmount) / Number(newOffering.tokenPrice))
+      : 0;
 
   const handleCreateOffering = (e) => {
     e.preventDefault();
@@ -49,14 +53,13 @@ export default function OfferingsManager({
       propertyName: matchedProp.name,
       targetAmount: Number(newOffering.targetAmount),
       raisedAmount: 0,
-      tokenSupply: Math.round(newOffering.targetAmount / newOffering.tokenPrice),
+      tokenSupply: computedTokenSupply,
       tokenPrice: Number(newOffering.tokenPrice),
       status: 'draft',
       launchDate: new Date().toISOString().split('T')[0],
       endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       investorsCount: 0,
-      description: newOffering.description || `Публичное предложение долей для объекта ${matchedProp.name}.`,
-      whitelistRequired: newOffering.whitelistRequired
+      description: newOffering.description || `Публичное предложение долей для объекта ${matchedProp.name}.`
     };
 
     setPlacements([...placements, added]);
@@ -294,10 +297,8 @@ export default function OfferingsManager({
                     <span className="text-gray-800 font-bold">{selectedPlc.tokenSupply.toLocaleString()} токенов</span>
                   </div>
                   <div>
-                    <span className="text-[8px] uppercase text-gray-400 block font-semibold">Квалификация Whitelist</span>
-                    <span className="text-emerald-700 font-bold uppercase text-[9px] flex items-center gap-1">
-                      <ShieldCheck size={11} /> KYC Smart Whitelist
-                    </span>
+                    <span className="text-[8px] uppercase text-gray-400 block font-semibold">Целевой капитал</span>
+                    <span className="text-gray-800 font-bold">{formatVal(selectedPlc.targetAmount, currency)}</span>
                   </div>
                 </div>
 
@@ -424,13 +425,23 @@ export default function OfferingsManager({
                     />
                   </div>
                   <div>
-                    <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена токена ($)</label>
+                    <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за 1 токен ($)</label>
                     <input
-                      type="number" required placeholder="50"
+                      type="number" required placeholder="50" min="1"
                       value={newOffering.tokenPrice} onChange={(e) => setNewOffering({...newOffering, tokenPrice: Number(e.target.value)})}
                       className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
                     />
                   </div>
+                </div>
+
+                {/* Live: сколько всего токенов будет выпущено */}
+                <div className="flex items-center justify-between bg-[#FAF8F3]/70 border border-[#A38D6D]/30 rounded p-3">
+                  <span className="text-[9px] uppercase font-bold text-gray-500 tracking-wider font-mono">
+                    Всего токенов к выпуску
+                  </span>
+                  <span className="text-sm font-bold font-mono text-[#A38D6D]">
+                    {computedTokenSupply.toLocaleString()} токенов
+                  </span>
                 </div>
 
                 <div>
@@ -441,19 +452,6 @@ export default function OfferingsManager({
                     value={newOffering.description} onChange={(e) => setNewOffering({...newOffering, description: e.target.value})}
                     className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] resize-none"
                   />
-                </div>
-
-                <div className="flex items-center gap-2 bg-emerald-50 p-3 rounded text-emerald-800 border border-emerald-100">
-                  <input
-                    type="checkbox"
-                    id="require-white-chk"
-                    checked={newOffering.whitelistRequired}
-                    onChange={(e) => setNewOffering({...newOffering, whitelistRequired: e.target.checked})}
-                    className="accent-emerald-700"
-                  />
-                  <label htmlFor="require-white-chk" className="text-[10px] font-mono font-semibold cursor-pointer">
-                    Требовать нахождение в смарт-контракте Whitelist (KYC)
-                  </label>
                 </div>
 
                 <div className="flex gap-3 pt-3 border-t border-gray-150">

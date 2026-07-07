@@ -79,6 +79,44 @@ export default function PropertiesList({
   const [docCategory, setDocCategory] = useState('legal');
   const [docSuccess, setDocSuccess] = useState(false);
 
+  // Documents attached directly inside the create/edit form modal
+  const [formDocs, setFormDocs] = useState([]);
+  const [formDocTitle, setFormDocTitle] = useState('');
+  const [formDocCategory, setFormDocCategory] = useState('legal');
+
+  const formatFileSize = (bytes) => {
+    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${bytes} B`;
+  };
+
+  // Attach real files chosen from the computer
+  const handleFormDocFiles = (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const customTitle = formDocTitle.trim();
+    const newDocs = files.map((file, idx) => ({
+      id: `doc-add-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+      // Use the typed name for the first file (if any), otherwise the real filename
+      title: idx === 0 && customTitle ? customTitle : file.name,
+      category: formDocCategory,
+      propertyId: formData.id,
+      propertyName: formData.name,
+      dateStr: new Date().toISOString().split('T')[0],
+      fileSize: formatFileSize(file.size),
+      status: formDocCategory === 'collateral' ? 'Registered' : 'Audited'
+    }));
+
+    setFormDocs(prev => [...prev, ...newDocs]);
+    setFormDocTitle('');
+    e.target.value = ''; // allow re-selecting the same file
+  };
+
+  const handleRemoveFormDoc = (docId) => {
+    setFormDocs(formDocs.filter(d => d.id !== docId));
+  };
+
   const handleOpenCreate = () => {
     setFormMode('create');
     setFormData({
@@ -86,35 +124,35 @@ export default function PropertiesList({
       name: '',
       city: '',
       country: '',
-      type: 'Историческая вилла',
+      address: '',
+      developer: '',
+      floors: 1,
+      completionYear: 2022,
+      description: '',
+      // Тип объекта: коммерческая или жилая недвижимость
+      type: 'Жилая недвижимость',
       images: ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800'],
       image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800',
-      currentValuation: 1500000,
-      monthlyYield: 10000,
-      roi: 8.0,
-      status: 'draft',
-      tokenSymbol: 'ATR-NEW',
-      tokenPrice: 50,
-      completionYear: 2022,
-      registrationStatus: 'Pending Review',
-      registrationNumber: `CH-REG-${Math.floor(1000 + Math.random() * 9000)}-Z`,
-      whitePaperFile: 'WhitePaper_RWA_Offering.pdf',
-      appraisalValue: 1500000,
-      pledgeStatus: 'Pending Appraisal',
-      pledgeTrustee: 'Helvetic Trust AG',
-      collateralStatus: 'Appraisal Registered',
-      blockchainNetwork: 'Ethereum (ERC-20/RWA)'
+      status: 'draft'
+      // Экономика (оценка, доход, цена токена, себестоимость) задаётся в Инвест-размещении
     });
+    setFormDocs([]);
+    setFormDocCategory('legal');
+    setFormDocTitle('');
     setShowFormModal(true);
   };
 
   const handleOpenEdit = (prop, e) => {
     e.stopPropagation();
     setFormMode('edit');
-    setFormData({ 
+    setFormData({
       ...prop,
       images: prop.images || (prop.image ? [prop.image] : [])
     });
+    // Preload existing documents so the modal is the single source of truth
+    setFormDocs(documents.filter(d => d.propertyId === prop.id));
+    setFormDocCategory('legal');
+    setFormDocTitle('');
     setShowFormModal(true);
   };
 
@@ -156,11 +194,22 @@ export default function PropertiesList({
     e.preventDefault();
     if (!formData.name || !formData.city) return;
 
+    // Persist documents attached in the modal (keep name in sync with the property)
+    const syncedDocs = formDocs.map(d => ({
+      ...d,
+      propertyId: formData.id,
+      propertyName: formData.name
+    }));
+    const otherDocs = documents.filter(d => d.propertyId !== formData.id);
+    setDocuments([...syncedDocs, ...otherDocs]);
+
     if (formMode === 'create') {
       setProperties([...properties, formData]);
       onAddLog(
         'Property Asset Created',
-        `Создана новая запись актива недвижимости "${formData.name}" в городе ${formData.city}. Статус: ${formData.status.toUpperCase()}`
+        `Создана новая запись актива недвижимости "${formData.name}" в городе ${formData.city}. Статус: ${formData.status.toUpperCase()}${
+          syncedDocs.length ? `. Прикреплено документов: ${syncedDocs.length}` : ''
+        }`
       );
     } else {
       const updated = properties.map(p => p.id === formData.id ? formData : p);
@@ -349,15 +398,15 @@ export default function PropertiesList({
                   <p className="text-[11px] text-gray-400 mt-1">{prop.type} • Год: {prop.completionYear}</p>
                 </div>
 
-                {/* Economic readouts */}
+                {/* Object info readouts */}
                 <div className="grid grid-cols-2 gap-4 border-t border-gray-50 pt-4 mt-4 text-[11px]">
                   <div>
-                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Кадастровая оценка</span>
-                    <span className="font-bold font-mono text-gray-800">{formatVal(prop.currentValuation, currency)}</span>
+                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Застройщик</span>
+                    <span className="font-bold text-gray-800 truncate block">{prop.developer || '—'}</span>
                   </div>
                   <div>
-                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Доходность (ROI)</span>
-                    <span className="font-bold font-mono text-emerald-600">+{prop.roi}% годовых</span>
+                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Этажность</span>
+                    <span className="font-bold font-mono text-gray-800">{prop.floors ? `${prop.floors} эт.` : '—'}</span>
                   </div>
                 </div>
 
@@ -371,10 +420,11 @@ export default function PropertiesList({
                   <div className="flex gap-2">
                     <button
                       onClick={(e) => handleOpenEdit(prop, e)}
-                      className="p-1 text-gray-500 hover:text-[#A38D6D] hover:bg-gray-50 rounded transition-colors"
+                      className="flex items-center gap-1 px-2 py-1 text-gray-600 hover:text-white hover:bg-[#A38D6D] border border-gray-200 hover:border-[#A38D6D] rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
                       title="Редактировать параметры"
                     >
-                      <Edit3 size={13} />
+                      <Edit3 size={11} />
+                      <span>Изменить</span>
                     </button>
                     {prop.status === 'archived' ? (
                       <button
@@ -488,6 +538,34 @@ export default function PropertiesList({
                 {/* TAB 1: INFO & REGISTRATION */}
                 {activeSubTab === 'info' && (
                   <div className="space-y-6">
+                    {selectedProp.description && (
+                      <div className="border-l-2 border-[#A38D6D] pl-4">
+                        <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider block mb-1">Описание объекта</span>
+                        <p className="text-xs text-gray-700 leading-relaxed">{selectedProp.description}</p>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-xs font-mono">
+                      {selectedProp.address && (
+                        <div className="border-b border-gray-50 pb-2 sm:col-span-2">
+                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Полный адрес</span>
+                          <span className="font-bold text-gray-900 flex items-center gap-1">
+                            <MapPin size={12} className="text-[#A38D6D]" /> {selectedProp.address}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Застройщик</span>
+                        <span className="font-bold text-gray-900">{selectedProp.developer || '—'}</span>
+                      </div>
+
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Этажность</span>
+                        <span className="font-bold text-gray-900">{selectedProp.floors ? `${selectedProp.floors} эт.` : '—'}</span>
+                      </div>
+                    </div>
+
                     <div className="bg-amber-50/50 border border-amber-100 p-4 rounded text-xs leading-relaxed text-amber-900">
                       <div className="flex items-center gap-2 font-bold mb-1.5 text-amber-950 font-serif">
                         <Award size={14} className="text-[#A38D6D]" />
@@ -763,7 +841,8 @@ export default function PropertiesList({
       {/* CREATE / EDIT PROPERTY FORM MODAL */}
       <AnimatePresence>
         {showFormModal && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs z-50 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -792,11 +871,14 @@ export default function PropertiesList({
 
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Тип недвижимости</label>
-                    <input 
-                      type="text" required placeholder="Например: Историческая вилла, Бутик-отель, Склад"
+                    <select
+                      required
                       value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                    />
+                    >
+                      <option value="Жилая недвижимость">Жилая недвижимость</option>
+                      <option value="Коммерческая недвижимость">Коммерческая недвижимость</option>
+                    </select>
                   </div>
 
                   <div>
@@ -810,7 +892,7 @@ export default function PropertiesList({
 
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Страна</label>
-                    <input 
+                    <input
                       type="text" required placeholder="Швейцария"
                       value={formData.country} onChange={(e) => setFormData({...formData, country: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
@@ -818,102 +900,59 @@ export default function PropertiesList({
                   </div>
                 </div>
 
-                {/* Economics */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Address, Developer, Floors, Description */}
+                <div className="space-y-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Оценочная стоимость ($)</label>
-                    <input 
-                      type="number" required
-                      value={formData.currentValuation} onChange={(e) => setFormData({...formData, currentValuation: Number(e.target.value), appraisalValue: Number(e.target.value)})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Месячный рентный доход ($)</label>
-                    <input 
-                      type="number" required
-                      value={formData.monthlyYield} onChange={(e) => setFormData({...formData, monthlyYield: Number(e.target.value)})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Ожидаемый ROI (%)</label>
-                    <input 
-                      type="number" step="0.01" required
-                      value={formData.roi} onChange={(e) => setFormData({...formData, roi: Number(e.target.value)})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* RWA Specifications */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-gray-100 pt-4">
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Символ Токена</label>
-                    <input 
-                      type="text" required placeholder="ATR-VILLA"
-                      value={formData.tokenSymbol} onChange={(e) => setFormData({...formData, tokenSymbol: e.target.value})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за 1 токен ($)</label>
-                    <input 
-                      type="number" required
-                      value={formData.tokenPrice} onChange={(e) => setFormData({...formData, tokenPrice: Number(e.target.value)})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Сеть размещения</label>
-                    <select
-                      value={formData.blockchainNetwork} onChange={(e) => setFormData({...formData, blockchainNetwork: e.target.value})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                    >
-                      <option value="Ethereum (ERC-20/RWA)">Ethereum</option>
-                      <option value="Arbitrum (RWA Layer)">Arbitrum</option>
-                      <option value="Polygon (POS Token)">Polygon</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Registration, WhitePaper, and Collateral */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-gray-100 pt-4">
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Швейцарский рег. номер</label>
-                    <input 
-                      type="text" placeholder="CH-REG-9012"
-                      value={formData.registrationNumber} onChange={(e) => setFormData({...formData, registrationNumber: e.target.value})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Доверитель залога</label>
-                    <input 
-                      type="text" placeholder="Helvetic Trust AG"
-                      value={formData.pledgeTrustee} onChange={(e) => setFormData({...formData, pledgeTrustee: e.target.value})}
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Полный адрес</label>
+                    <input
+                      type="text" placeholder="Например: Bahnhofstrasse 12, 6300 Zug, Switzerland"
+                      value={formData.address || ''} onChange={(e) => setFormData({...formData, address: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                     />
                   </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Застройщик</label>
+                      <input
+                        type="text" placeholder="Например: Helvetia Development AG"
+                        value={formData.developer || ''} onChange={(e) => setFormData({...formData, developer: e.target.value})}
+                        className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Этажность</label>
+                      <input
+                        type="number" min="1" placeholder="Например: 5"
+                        value={formData.floors ?? ''} onChange={(e) => setFormData({...formData, floors: Number(e.target.value)})}
+                        className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес контракта</label>
-                    <input 
-                      type="text" placeholder="0x..."
-                      value={formData.tokenAddress} onChange={(e) => setFormData({...formData, tokenAddress: e.target.value})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Описание объекта</label>
+                    <textarea
+                      rows={3} placeholder="Краткое описание объекта, его особенности и инвестиционная привлекательность..."
+                      value={formData.description || ''} onChange={(e) => setFormData({...formData, description: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white resize-none"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-4">
+                {/* Year & Status (экономика задаётся в Инвест-размещении) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Статус соответствия</label>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
+                    <input
+                      type="number" min="1800" max="2100" placeholder="Например: 2020"
+                      value={formData.completionYear ?? ''} onChange={(e) => setFormData({...formData, completionYear: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Статус объекта</label>
                     <select
                       value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-semibold"
@@ -924,6 +963,11 @@ export default function PropertiesList({
                     </select>
                   </div>
                 </div>
+
+                <p className="text-[9px] text-gray-400 font-mono bg-[#FBFBFA] border border-gray-100 rounded p-2.5 leading-relaxed">
+                  Оценочная стоимость, доходность, цена и себестоимость токена задаются при создании
+                  <span className="font-bold text-gray-600"> Инвест-размещения</span> для этого объекта.
+                </p>
 
                 {/* Images Upload Area */}
                 <div className="border-t border-gray-100 pt-4">
@@ -997,6 +1041,67 @@ export default function PropertiesList({
                   </p>
                 </div>
 
+                {/* Documents attach area (available right at registration) — compact */}
+                <div className="border-t border-gray-100 pt-4">
+                  <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                    Документы объекта
+                  </span>
+
+                  {/* List of attached documents */}
+                  {formDocs.length > 0 && (
+                    <div className="space-y-1.5 mb-2.5">
+                      {formDocs.map(doc => (
+                        <div key={doc.id} className="flex justify-between items-center py-1.5 px-2 border border-gray-150 rounded bg-[#FBFBFA]">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText size={13} className="text-[#A38D6D] shrink-0" />
+                            <span className="font-bold text-gray-900 truncate text-[11px]">{doc.title}</span>
+                            <span className="text-[8px] text-gray-400 font-mono uppercase tracking-wider shrink-0">{doc.category} • {doc.fileSize}</span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveFormDoc(doc.id)}
+                            className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors shrink-0"
+                            title="Удалить документ"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add document: name + category + upload, one compact row */}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      type="text"
+                      placeholder="Название документа (необязательно)"
+                      value={formDocTitle}
+                      onChange={(e) => setFormDocTitle(e.target.value)}
+                      className="flex-1 p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                    />
+                    <select
+                      value={formDocCategory}
+                      onChange={(e) => setFormDocCategory(e.target.value)}
+                      className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] sm:w-36 shrink-0"
+                    >
+                      <option value="legal">Юридический</option>
+                      <option value="valuation">Оценка</option>
+                      <option value="collateral">Залог</option>
+                    </select>
+                    <label className="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 hover:border-[#A38D6D] rounded px-3 py-2 cursor-pointer transition-colors text-gray-500 hover:text-[#A38D6D] bg-white shrink-0">
+                      <Upload size={13} />
+                      <span className="text-[9px] uppercase tracking-widest font-bold whitespace-nowrap">Загрузить файл</span>
+                      <input
+                        type="file"
+                        multiple
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                        onChange={handleFormDocFiles}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
                 <div className="flex gap-3 pt-4 border-t border-gray-150">
                   <button
                     type="button"
@@ -1014,6 +1119,7 @@ export default function PropertiesList({
                 </div>
               </form>
             </motion.div>
+            </div>
           </div>
         )}
       </AnimatePresence>
