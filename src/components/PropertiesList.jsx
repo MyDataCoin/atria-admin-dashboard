@@ -1,0 +1,1023 @@
+import React, { useState } from 'react';
+import { 
+  Building, 
+  MapPin, 
+  Calendar, 
+  DollarSign, 
+  FileText, 
+  ShieldAlert, 
+  Plus, 
+  Edit3, 
+  Archive, 
+  CheckCircle, 
+  FileCheck, 
+  Trash2, 
+  Upload, 
+  ExternalLink,
+  BookOpen,
+  Eye,
+  TrendingUp,
+  Award,
+  RefreshCw
+} from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { formatVal } from '../utils';
+
+export default function PropertiesList({ 
+  properties, 
+  setProperties,
+  documents,
+  setDocuments,
+  publications,
+  setPublications,
+  investors,
+  currency = 'USD',
+  onAddLog
+}) {
+  const [selectedProp, setSelectedProp] = useState(null);
+  const [activeImgIndex, setActiveImgIndex] = useState(0);
+  const [activeSubTab, setActiveSubTab] = useState('info'); // info, docs, collateral, news, holders
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const selectedPropImages = selectedProp ? (selectedProp.images && selectedProp.images.length > 0 ? selectedProp.images : [selectedProp.image].filter(Boolean)) : [];
+  
+  // Create / Edit modal state
+  const [showFormModal, setShowFormModal] = useState(false);
+  const [formMode, setFormMode] = useState('create'); // create, edit
+  const [formData, setFormData] = useState({
+    id: '',
+    name: '',
+    city: '',
+    country: '',
+    type: 'Историческая вилла',
+    image: '',
+    currentValuation: 2000000,
+    monthlyYield: 12000,
+    roi: 7.5,
+    status: 'draft',
+    tokenSymbol: 'ATR-',
+    tokenPrice: 50,
+    completionYear: 2020,
+    registrationStatus: 'Pending Review',
+    registrationNumber: 'CH-REG-PENDING',
+    whitePaperFile: 'WhitePaper_Draft.pdf',
+    appraisalValue: 2000000,
+    pledgeStatus: 'Pending Appraisal',
+    pledgeTrustee: 'Helvetic Trust AG',
+    collateralStatus: 'Under review',
+    blockchainNetwork: 'Ethereum (ERC-20/RWA)'
+  });
+
+  // News publication form inside selected property panel
+  const [pubTitle, setPubTitle] = useState('');
+  const [pubType, setPubType] = useState('Financial Report');
+  const [pubSummary, setPubSummary] = useState('');
+  const [pubSuccess, setPubSuccess] = useState(false);
+
+  // Document upload simulation
+  const [docTitle, setDocTitle] = useState('');
+  const [docCategory, setDocCategory] = useState('legal');
+  const [docSuccess, setDocSuccess] = useState(false);
+
+  const handleOpenCreate = () => {
+    setFormMode('create');
+    setFormData({
+      id: `prop-${Date.now()}`,
+      name: '',
+      city: '',
+      country: '',
+      type: 'Историческая вилла',
+      images: ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800'],
+      image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800',
+      currentValuation: 1500000,
+      monthlyYield: 10000,
+      roi: 8.0,
+      status: 'draft',
+      tokenSymbol: 'ATR-NEW',
+      tokenPrice: 50,
+      completionYear: 2022,
+      registrationStatus: 'Pending Review',
+      registrationNumber: `CH-REG-${Math.floor(1000 + Math.random() * 9000)}-Z`,
+      whitePaperFile: 'WhitePaper_RWA_Offering.pdf',
+      appraisalValue: 1500000,
+      pledgeStatus: 'Pending Appraisal',
+      pledgeTrustee: 'Helvetic Trust AG',
+      collateralStatus: 'Appraisal Registered',
+      blockchainNetwork: 'Ethereum (ERC-20/RWA)'
+    });
+    setShowFormModal(true);
+  };
+
+  const handleOpenEdit = (prop, e) => {
+    e.stopPropagation();
+    setFormMode('edit');
+    setFormData({ 
+      ...prop,
+      images: prop.images || (prop.image ? [prop.image] : [])
+    });
+    setShowFormModal(true);
+  };
+
+  const handleArchiveProperty = (propId, e) => {
+    e.stopPropagation();
+    const updated = properties.map(p => {
+      if (p.id === propId) {
+        return { ...p, status: 'archived' };
+      }
+      return p;
+    });
+    setProperties(updated);
+    
+    const matched = properties.find(p => p.id === propId);
+    onAddLog(
+      'Property Archived',
+      `Объект "${matched?.name}" переведен в архив. Смарт-контракты оферты деактивированы.`
+    );
+  };
+
+  const handleUnarchiveProperty = (propId, e) => {
+    e.stopPropagation();
+    const updated = properties.map(p => {
+      if (p.id === propId) {
+        return { ...p, status: 'active' };
+      }
+      return p;
+    });
+    setProperties(updated);
+    
+    const matched = properties.find(p => p.id === propId);
+    onAddLog(
+      'Property Unarchived',
+      `Объект "${matched?.name}" успешно восстановлен и извлечен из архива.`
+    );
+  };
+
+  const handleSaveForm = (e) => {
+    e.preventDefault();
+    if (!formData.name || !formData.city) return;
+
+    if (formMode === 'create') {
+      setProperties([...properties, formData]);
+      onAddLog(
+        'Property Asset Created',
+        `Создана новая запись актива недвижимости "${formData.name}" в городе ${formData.city}. Статус: ${formData.status.toUpperCase()}`
+      );
+    } else {
+      const updated = properties.map(p => p.id === formData.id ? formData : p);
+      setProperties(updated);
+      onAddLog(
+        'Property Asset Updated',
+        `Обновлены кадастровые и токенизационные параметры актива "${formData.name}".`
+      );
+    }
+    
+    // Update selected property view if editing currently open one
+    if (selectedProp && selectedProp.id === formData.id) {
+      setSelectedProp(formData);
+      setActiveImgIndex(0);
+    }
+
+    setShowFormModal(false);
+  };
+
+  // Add Document simulation
+  const handleAddDocument = (e) => {
+    e.preventDefault();
+    if (!docTitle) return;
+
+    const newDoc = {
+      id: `doc-add-${Date.now()}`,
+      title: docTitle,
+      category: docCategory,
+      propertyName: selectedProp.name,
+      propertyId: selectedProp.id,
+      dateStr: new Date().toISOString().split('T')[0],
+      fileSize: `${(1.5 + Math.random() * 8).toFixed(1)} MB`,
+      status: docCategory === 'collateral' ? 'Registered' : 'Audited'
+    };
+
+    setDocuments([newDoc, ...documents]);
+    onAddLog(
+      'Document Uploaded',
+      `Загружен документ "${docTitle}" для объекта "${selectedProp.name}".`
+    );
+
+    setDocSuccess(true);
+    setDocTitle('');
+    setTimeout(() => setDocSuccess(false), 2000);
+  };
+
+  const handleDeleteDocument = (docId) => {
+    setDocuments(documents.filter(d => d.id !== docId));
+    onAddLog('Document Removed', 'Администратор удалил юридический файл из реестра объекта.');
+  };
+
+  // Publish report/news simulation
+  const handlePublishNews = (e) => {
+    e.preventDefault();
+    if (!pubTitle || !pubSummary) return;
+
+    const newPub = {
+      id: `pub-add-${Date.now()}`,
+      title: pubTitle,
+      date: new Date().toISOString().split('T')[0],
+      propertyId: selectedProp.id,
+      propertyName: selectedProp.name,
+      type: pubType,
+      summary: pubSummary,
+      status: 'Published'
+    };
+
+    setPublications([newPub, ...publications]);
+    onAddLog(
+      'News/Report Published',
+      `Опубликован отчет "${pubTitle}" по активу "${selectedProp.name}".`
+    );
+
+    setPubSuccess(true);
+    setPubTitle('');
+    setPubSummary('');
+    setTimeout(() => setPubSuccess(false), 2000);
+  };
+
+  const getFilteredProperties = () => {
+    if (statusFilter === 'all') return properties;
+    return properties.filter(p => p.status === statusFilter);
+  };
+
+  return (
+    <div className="space-y-8 font-sans text-left">
+      
+      {/* Header Panel */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-gray-150">
+        <div>
+          <span className="text-[9px] uppercase tracking-widest text-[#A38D6D] font-bold block mb-1">
+            Государственный кадастровый реестр
+          </span>
+          <h2 className="text-xl font-serif font-bold text-gray-900">
+            Управление Органами & Активами RWA
+          </h2>
+        </div>
+        <button
+          onClick={handleOpenCreate}
+          className="flex items-center gap-1.5 bg-[#A38D6D] hover:bg-[#8e7b5e] text-white px-4 py-2.5 rounded text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer"
+        >
+          <Plus size={12} />
+          <span>Зарегистрировать объект</span>
+        </button>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex flex-wrap gap-2 pb-1 border-b border-gray-100">
+        {[
+          { id: 'all', label: 'Все объекты' },
+          { id: 'active', label: 'В портфеле (Активные)' },
+          { id: 'draft', label: 'Черновики' },
+          { id: 'archived', label: 'Архивные' }
+        ].map((tab) => {
+          const count = tab.id === 'all' 
+            ? properties.length 
+            : properties.filter(p => p.status === tab.id).length;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setStatusFilter(tab.id)}
+              className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-all cursor-pointer flex items-center gap-1.5 border ${
+                statusFilter === tab.id 
+                  ? 'bg-[#A38D6D] border-[#A38D6D] text-white font-bold' 
+                  : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span className={`px-1.5 py-0.2 text-[8px] rounded-full font-bold ${
+                statusFilter === tab.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Grid of Real Estate Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {getFilteredProperties().map((prop) => {
+          const propDocsCount = documents.filter(d => d.propertyId === prop.id).length;
+          const propNewsCount = publications.filter(p => p.propertyId === prop.id).length;
+
+          return (
+            <div
+              key={prop.id}
+              onClick={() => { setSelectedProp(prop); setActiveSubTab('info'); setActiveImgIndex(0); }}
+              className="bg-white border border-gray-100 hover:border-[#A38D6D] rounded-sm overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group"
+            >
+              {/* Image & Header */}
+              <div className="relative h-44 w-full bg-gray-100 overflow-hidden">
+                <img 
+                  src={(prop.images && prop.images.length > 0) ? prop.images[0] : prop.image} 
+                  alt={prop.name}
+                  className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
+                  referrerPolicy="no-referrer"
+                />
+                
+                {/* Visual state badge */}
+                <span className={`absolute top-3 left-3 text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs ${
+                  prop.status === 'active' ? 'bg-emerald-600 text-white' :
+                  prop.status === 'draft' ? 'bg-amber-500 text-white' :
+                  'bg-gray-500 text-white'
+                }`}>
+                  {prop.status === 'active' ? 'В портфеле' : prop.status === 'draft' ? 'Черновик' : 'Архив'}
+                </span>
+
+                <span className="absolute bottom-3 right-3 bg-[#111111]/80 backdrop-blur-xs text-white text-[8px] font-mono tracking-widest px-2.5 py-1 uppercase rounded">
+                  {prop.tokenSymbol}
+                </span>
+              </div>
+
+              {/* Body Details */}
+              <div className="p-5 flex-1 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center gap-1 text-[10px] text-[#A38D6D] font-bold font-mono uppercase tracking-wider">
+                    <MapPin size={10} />
+                    <span>{prop.city}, {prop.country}</span>
+                  </div>
+                  
+                  <h3 className="text-sm font-serif font-bold text-gray-900 mt-1 leading-tight group-hover:text-[#A38D6D] transition-colors">
+                    {prop.name}
+                  </h3>
+
+                  <p className="text-[11px] text-gray-400 mt-1">{prop.type} • Год: {prop.completionYear}</p>
+                </div>
+
+                {/* Economic readouts */}
+                <div className="grid grid-cols-2 gap-4 border-t border-gray-50 pt-4 mt-4 text-[11px]">
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Кадастровая оценка</span>
+                    <span className="font-bold font-mono text-gray-800">{formatVal(prop.currentValuation, currency)}</span>
+                  </div>
+                  <div>
+                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Доходность (ROI)</span>
+                    <span className="font-bold font-mono text-emerald-600">+{prop.roi}% годовых</span>
+                  </div>
+                </div>
+
+                {/* Admin metadata */}
+                <div className="mt-4 pt-3 border-t border-dashed border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+                  <span className="flex items-center gap-1">
+                    <FileText size={12} className="text-[#A38D6D]" />
+                    {propDocsCount} док. • {propNewsCount} отч.
+                  </span>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={(e) => handleOpenEdit(prop, e)}
+                      className="p-1 text-gray-500 hover:text-[#A38D6D] hover:bg-gray-50 rounded transition-colors"
+                      title="Редактировать параметры"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                    {prop.status === 'archived' ? (
+                      <button
+                        onClick={(e) => handleUnarchiveProperty(prop.id, e)}
+                        className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition-colors flex items-center gap-1 text-[10px] font-mono font-bold"
+                        title="Извлечь из архива"
+                      >
+                        <RefreshCw size={11} className="animate-none text-emerald-600" />
+                        <span>Извлечь</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => handleArchiveProperty(prop.id, e)}
+                        className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                        title="Архивировать актив"
+                      >
+                        <Archive size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Selected Property Detail Bottom/Side Modal Panel */}
+      <AnimatePresence>
+        {selectedProp && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-end z-50 p-0 sm:p-4">
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="bg-white h-full sm:h-full sm:max-h-[96vh] w-full max-w-2xl sm:rounded-sm shadow-2xl flex flex-col justify-between overflow-hidden text-left border-l border-gray-200"
+            >
+              {/* Modal Header */}
+              <div className="relative h-48 bg-gray-100 shrink-0">
+                <img 
+                  src={selectedPropImages[activeImgIndex] || 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800'} 
+                  alt={selectedProp.name}
+                  className="w-full h-full object-cover transition-all duration-300"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+                
+                {selectedPropImages.length > 1 && (
+                  <div className="absolute bottom-4 right-6 flex gap-1.5 z-10 bg-black/40 backdrop-blur-xs p-1.5 rounded-full">
+                    {selectedPropImages.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setActiveImgIndex(idx)}
+                        className={`w-2 h-2 rounded-full transition-all cursor-pointer ${
+                          activeImgIndex === idx ? 'bg-[#A38D6D] scale-125' : 'bg-white/60 hover:bg-white'
+                        }`}
+                        title={`Слайд ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setSelectedProp(null)}
+                  className="absolute top-4 right-4 cursor-pointer bg-black/50 text-white hover:bg-black/80 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold font-mono transition-colors"
+                >
+                  ✕
+                </button>
+
+                <div className="absolute bottom-4 left-6 text-white">
+                  <span className="text-[8px] font-mono uppercase tracking-widest text-[#A38D6D] font-bold block mb-1">
+                    Эмиссионный паспорт актива
+                  </span>
+                  <h3 className="text-xl font-serif font-bold leading-tight">
+                    {selectedProp.name}
+                  </h3>
+                  <p className="text-[10px] text-gray-300 font-mono mt-0.5 uppercase tracking-wide">
+                    {selectedProp.city}, {selectedProp.country} • {selectedProp.tokenSymbol}
+                  </p>
+                </div>
+              </div>
+
+              {/* Navigation Sub-Tabs inside property detail */}
+              <div className="flex border-b border-gray-150 bg-[#FBFBFA] shrink-0 text-xs font-semibold uppercase tracking-wider font-mono">
+                {[
+                  { id: 'info', label: 'Данные токенов' },
+                  { id: 'docs', label: 'Документы' },
+                  { id: 'collateral', label: 'Обеспечение' },
+                  { id: 'news', label: 'Финотчеты & Новости' },
+                  { id: 'holders', label: 'Доли инвесторов' }
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveSubTab(tab.id)}
+                    className={`flex-1 py-3 text-center border-b-2 text-[9px] sm:text-[10px] transition-all cursor-pointer ${
+                      activeSubTab === tab.id 
+                        ? 'border-[#A38D6D] text-[#A38D6D] bg-white font-bold' 
+                        : 'border-transparent text-gray-400 hover:text-gray-800'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sub-Tab content scrolls */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                
+                {/* TAB 1: INFO & REGISTRATION */}
+                {activeSubTab === 'info' && (
+                  <div className="space-y-6">
+                    <div className="bg-amber-50/50 border border-amber-100 p-4 rounded text-xs leading-relaxed text-amber-900">
+                      <div className="flex items-center gap-2 font-bold mb-1.5 text-amber-950 font-serif">
+                        <Award size={14} className="text-[#A38D6D]" />
+                        <span>Регистрация выпуска в Департаменте Долговых Обязательств</span>
+                      </div>
+                      Каждая выпущенная акция токенизирована в качестве "безусловного регистрового ценного права" согласно Кодексу Законов Швейцарии. Выпуск привязан к публичному смарт-контракту.
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-xs font-mono">
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Государственный рег. номер</span>
+                        <span className="font-bold text-gray-900">{selectedProp.registrationNumber || 'CH-REG-8822'}</span>
+                      </div>
+                      
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Статус соответствия выпуска</span>
+                        <span className="font-bold text-emerald-600 flex items-center gap-1">
+                          <CheckCircle size={12} /> {selectedProp.registrationStatus || 'Registered'}
+                        </span>
+                      </div>
+
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Файл White Paper</span>
+                        <span className="font-bold text-gray-800 flex items-center gap-1 underline cursor-pointer hover:text-[#A38D6D]">
+                          <FileText size={12} className="text-[#A38D6D]" />
+                          {selectedProp.whitePaperFile || 'White_Paper_v1.0.pdf'}
+                        </span>
+                      </div>
+
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Контракт RWA в блокчейне</span>
+                        <span className="font-bold text-gray-600 flex items-center gap-1 truncate max-w-[200px]" title={selectedProp.tokenAddress}>
+                          <ExternalLink size={12} /> {selectedProp.tokenAddress || '0xAtria...'}
+                        </span>
+                      </div>
+
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Блокчейн-Сеть</span>
+                        <span className="font-bold text-gray-800">{selectedProp.blockchainNetwork || 'Ethereum'}</span>
+                      </div>
+
+                      <div className="border-b border-gray-50 pb-2">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold block mb-1">Номинальная цена токена</span>
+                        <span className="font-bold text-gray-900">{formatVal(selectedProp.tokenPrice, currency)} / {selectedProp.tokenSymbol}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 2: LEGAL & FINANCIAL DOCUMENTS */}
+                {activeSubTab === 'docs' && (
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold mb-3 font-mono">Документы объекта недвижимости</h4>
+                      <div className="space-y-2">
+                        {documents.filter(d => d.propertyId === selectedProp.id).map(doc => (
+                          <div key={doc.id} className="flex justify-between items-center p-3 border border-gray-100 rounded hover:bg-[#FBFBFA] transition-all">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <FileText size={16} className="text-[#A38D6D] shrink-0" />
+                              <div className="truncate text-xs">
+                                <span className="font-bold text-gray-900 block truncate">{doc.title}</span>
+                                <span className="text-[9px] text-gray-400 font-mono">Категория: {doc.category.toUpperCase()} • Размер: {doc.fileSize}</span>
+                              </div>
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                              <span className="text-[8px] font-mono uppercase font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
+                                {doc.status}
+                              </span>
+                              <button
+                                onClick={() => handleDeleteDocument(doc.id)}
+                                className="p-1 text-gray-400 hover:text-rose-600 rounded"
+                                title="Удалить"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {documents.filter(d => d.propertyId === selectedProp.id).length === 0 && (
+                          <p className="text-xs text-gray-400 italic py-4">Документы еще не загружены для этого объекта.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Simulation Upload document form */}
+                    <div className="border-t border-gray-100 pt-5 text-xs">
+                      <h5 className="font-serif font-bold text-gray-900 mb-2">Загрузить новый документ (PDF / DOC)</h5>
+                      <form onSubmit={handleAddDocument} className="space-y-3">
+                        {docSuccess && (
+                          <p className="text-[10px] font-mono font-bold text-emerald-600">✓ Документ зафиксирован в реестре!</p>
+                        )}
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            placeholder="Название документа (например, Оценочный акт 2026)"
+                            required
+                            value={docTitle}
+                            onChange={(e) => setDocTitle(e.target.value)}
+                            className="flex-1 p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                          />
+                          <select
+                            value={docCategory}
+                            onChange={(e) => setDocCategory(e.target.value)}
+                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                          >
+                            <option value="legal">Юридический</option>
+                            <option value="valuation">Оценка</option>
+                            <option value="collateral">Залог</option>
+                          </select>
+                        </div>
+                        <button
+                          type="submit"
+                          className="flex items-center gap-1.5 bg-[#111111] hover:bg-[#A38D6D] text-white py-2 px-4 rounded text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                        >
+                          <Upload size={12} />
+                          <span>Загрузить в архив</span>
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 3: COLLATERAL / APPRAISAL */}
+                {activeSubTab === 'collateral' && (
+                  <div className="space-y-6">
+                    <div className="border-l-2 border-[#A38D6D] pl-4 space-y-1">
+                      <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider block">Обеспечение выпуска</span>
+                      <h4 className="text-sm font-serif font-bold text-gray-900">Залоговое покрытие и Оценка</h4>
+                    </div>
+
+                    <div className="bg-amber-50/20 border border-[#A38D6D]/20 p-5 rounded space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
+                        <div>
+                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Оценочная стоимость Savills</span>
+                          <span className="font-bold text-lg text-gray-900">{formatVal(selectedProp.appraisalValue || selectedProp.currentValuation, currency)}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Статус залога в реестре</span>
+                          <span className="font-bold text-[#A38D6D] uppercase text-xs">{selectedProp.pledgeStatus || 'Registered Pledge'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Управляющий залогом (Collateral Trustee)</span>
+                          <span className="font-bold text-gray-800">{selectedProp.pledgeTrustee || 'Helvetic Trust AG'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[9px] uppercase text-gray-400 font-bold block mb-0.5">Покрытие обязательств</span>
+                          <span className="font-bold text-emerald-600 uppercase text-xs">{selectedProp.collateralStatus || '100% Fully Covered'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-gray-500 leading-relaxed">
+                      В случае ликвидации или обратного выкупа, независимый управляющий залогом (Collateral Trustee) осуществляет продажу объекта и возвращает вырученные средства держателям токенов {selectedProp.tokenSymbol} в соответствии с процедурой выкупа.
+                    </p>
+                  </div>
+                )}
+
+                {/* TAB 4: PUBLISH NEWS & REPORT */}
+                {activeSubTab === 'news' && (
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold mb-3 font-mono">История отчетов и новостей</h4>
+                      <div className="space-y-3">
+                        {publications.filter(p => p.propertyId === selectedProp.id).map(pub => (
+                          <div key={pub.id} className="p-3.5 border border-gray-100 rounded text-xs bg-white space-y-1">
+                            <div className="flex justify-between items-start">
+                              <span className="font-bold text-gray-900 leading-tight block">{pub.title}</span>
+                              <span className="text-[8px] font-mono uppercase bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-100 font-bold shrink-0 ml-2">
+                                {pub.type}
+                              </span>
+                            </div>
+                            <p className="text-gray-500 text-[11px] leading-relaxed pt-1">{pub.summary}</p>
+                            <span className="text-[8px] text-gray-400 font-mono block pt-1.5 border-t border-gray-50">Дата публикации: {pub.date} • Статус: PUBLISHED</span>
+                          </div>
+                        ))}
+                        {publications.filter(p => p.propertyId === selectedProp.id).length === 0 && (
+                          <p className="text-xs text-gray-400 italic py-4">Новостей и отчетов по этому объекту еще нет.</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Publish News Form */}
+                    <div className="border-t border-gray-100 pt-5 text-xs">
+                      <h5 className="font-serif font-bold text-gray-900 mb-2">Создать новость или финансовый отчет</h5>
+                      <form onSubmit={handlePublishNews} className="space-y-3">
+                        {pubSuccess && (
+                          <p className="text-[10px] font-mono font-bold text-emerald-600">✓ Отчет успешно опубликован для инвесторов!</p>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <input
+                            type="text"
+                            placeholder="Тема публикации"
+                            required
+                            value={pubTitle}
+                            onChange={(e) => setPubTitle(e.target.value)}
+                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                          />
+                          <select
+                            value={pubType}
+                            onChange={(e) => setPubType(e.target.value)}
+                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                          >
+                            <option value="Financial Report">Финансовый аудит</option>
+                            <option value="News Release">Новость объекта</option>
+                            <option value="Valuation Audit">Оценка стоимости</option>
+                          </select>
+                        </div>
+                        <textarea
+                          placeholder="Краткое содержание публикации..."
+                          rows={3}
+                          required
+                          value={pubSummary}
+                          onChange={(e) => setPubSummary(e.target.value)}
+                          className="w-full p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] resize-none"
+                        />
+                        <button
+                          type="submit"
+                          className="bg-[#111111] hover:bg-[#A38D6D] text-white text-[9px] py-2 px-4 rounded uppercase tracking-widest font-bold transition-all cursor-pointer"
+                        >
+                          Опубликовать новость
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
+                {/* TAB 5: SHAREHOLDERS LIST */}
+                {activeSubTab === 'holders' && (
+                  <div className="space-y-6">
+                    <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold font-mono">Распределение долей инвесторов</h4>
+                    <div className="space-y-3 font-mono">
+                      {investors.filter(inv => inv.holdings.some(h => h.propertyId === selectedProp.id)).map(inv => {
+                        const holding = inv.holdings.find(h => h.propertyId === selectedProp.id);
+                        const weight = selectedProp.currentValuation > 0 
+                          ? ((holding.tokensOwned * selectedProp.tokenPrice) / selectedProp.currentValuation) * 100 
+                          : 0;
+                        return (
+                          <div key={inv.id} className="flex justify-between items-center p-3 border border-gray-50 bg-[#FBFBFA] rounded text-xs">
+                            <div className="text-left">
+                              <span className="font-bold text-gray-900 block font-serif">{inv.name}</span>
+                              <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{inv.walletAddress}</span>
+                            </div>
+                            <div className="text-right">
+                              <span className="font-bold text-[#A38D6D] block">{holding.tokensOwned.toLocaleString()} ATR-S</span>
+                              <span className="text-[10px] text-gray-500 block">Доля: {weight.toFixed(2)}%</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {investors.filter(inv => inv.holdings.some(h => h.propertyId === selectedProp.id)).length === 0 && (
+                        <p className="text-xs text-gray-400 italic py-4">Инвесторы еще не приобрели доли в этом объекте.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+              </div>
+
+              {/* Modal Actions */}
+              <div className="bg-gray-50 border-t border-gray-150 p-4 shrink-0 flex gap-3 text-xs">
+                <button
+                  onClick={() => setSelectedProp(null)}
+                  className="flex-1 bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer"
+                >
+                  Закрыть карточку
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* CREATE / EDIT PROPERTY FORM MODAL */}
+      <AnimatePresence>
+        {showFormModal && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white border border-gray-200 shadow-2xl max-w-2xl w-full p-6 text-left relative rounded-sm my-8"
+            >
+              <div className="border-b border-gray-150 pb-3 mb-4">
+                <span className="text-[8px] uppercase tracking-widest text-[#A38D6D] font-bold block">Кадастровый реестр</span>
+                <h3 className="text-lg font-serif font-bold text-gray-900 mt-0.5">
+                  {formMode === 'create' ? 'Зарегистрировать новый объект выпуска' : 'Редактировать параметры актива'}
+                </h3>
+              </div>
+
+              <form onSubmit={handleSaveForm} className="space-y-4 text-xs">
+                
+                {/* General Data */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Название объекта</label>
+                    <input 
+                      type="text" required placeholder="Например: Вилла Малибу"
+                      value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Тип недвижимости</label>
+                    <input 
+                      type="text" required placeholder="Например: Историческая вилла, Бутик-отель, Склад"
+                      value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Город</label>
+                    <input 
+                      type="text" required placeholder="Киото / Цуг"
+                      value={formData.city} onChange={(e) => setFormData({...formData, city: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Страна</label>
+                    <input 
+                      type="text" required placeholder="Швейцария"
+                      value={formData.country} onChange={(e) => setFormData({...formData, country: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Economics */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Оценочная стоимость ($)</label>
+                    <input 
+                      type="number" required
+                      value={formData.currentValuation} onChange={(e) => setFormData({...formData, currentValuation: Number(e.target.value), appraisalValue: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Месячный рентный доход ($)</label>
+                    <input 
+                      type="number" required
+                      value={formData.monthlyYield} onChange={(e) => setFormData({...formData, monthlyYield: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Ожидаемый ROI (%)</label>
+                    <input 
+                      type="number" step="0.01" required
+                      value={formData.roi} onChange={(e) => setFormData({...formData, roi: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* RWA Specifications */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-gray-100 pt-4">
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Символ Токена</label>
+                    <input 
+                      type="text" required placeholder="ATR-VILLA"
+                      value={formData.tokenSymbol} onChange={(e) => setFormData({...formData, tokenSymbol: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за 1 токен ($)</label>
+                    <input 
+                      type="number" required
+                      value={formData.tokenPrice} onChange={(e) => setFormData({...formData, tokenPrice: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Сеть размещения</label>
+                    <select
+                      value={formData.blockchainNetwork} onChange={(e) => setFormData({...formData, blockchainNetwork: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                    >
+                      <option value="Ethereum (ERC-20/RWA)">Ethereum</option>
+                      <option value="Arbitrum (RWA Layer)">Arbitrum</option>
+                      <option value="Polygon (POS Token)">Polygon</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Registration, WhitePaper, and Collateral */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-t border-gray-100 pt-4">
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Швейцарский рег. номер</label>
+                    <input 
+                      type="text" placeholder="CH-REG-9012"
+                      value={formData.registrationNumber} onChange={(e) => setFormData({...formData, registrationNumber: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Доверитель залога</label>
+                    <input 
+                      type="text" placeholder="Helvetic Trust AG"
+                      value={formData.pledgeTrustee} onChange={(e) => setFormData({...formData, pledgeTrustee: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес контракта</label>
+                    <input 
+                      type="text" placeholder="0x..."
+                      value={formData.tokenAddress} onChange={(e) => setFormData({...formData, tokenAddress: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Статус соответствия</label>
+                    <select
+                      value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-semibold"
+                    >
+                      <option value="draft">Черновик (Draft)</option>
+                      <option value="active">Активный в портфеле (Active)</option>
+                      <option value="archived">Архивный / Погашен (Archived)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Images Upload Area */}
+                <div className="border-t border-gray-100 pt-4">
+                  <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                    Изображения объекта (Максимум 3)
+                  </span>
+                  
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    {/* Render existing selected images */}
+                    {formData.images && formData.images.map((img, idx) => (
+                      <div key={idx} className="relative h-24 bg-gray-50 border border-gray-150 rounded-sm overflow-hidden group">
+                        <img src={img} alt={`Preview ${idx}`} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updatedImages = formData.images.filter((_, i) => i !== idx);
+                            setFormData({
+                              ...formData,
+                              images: updatedImages,
+                              image: updatedImages[0] || ''
+                            });
+                          }}
+                          className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] uppercase font-bold tracking-wider transition-opacity cursor-pointer"
+                        >
+                          Удалить
+                        </button>
+                        <span className="absolute bottom-1 left-1 text-[8px] bg-[#111111]/80 text-white px-1.5 py-0.5 rounded font-mono">
+                          #{idx + 1}
+                        </span>
+                      </div>
+                    ))}
+                    
+                    {/* If less than 3, show upload slots */}
+                    {(!formData.images || formData.images.length < 3) && (
+                      <label className="border border-dashed border-gray-300 hover:border-[#A38D6D] h-24 rounded-sm flex flex-col items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-[#A38D6D] p-2 text-center bg-gray-50/50">
+                        <Upload size={16} className="mb-1 text-gray-400" />
+                        <span className="text-[8px] uppercase tracking-wider font-bold">Добавить</span>
+                        <span className="text-[7px] text-gray-400 font-mono">Макс. 3</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          multiple={3 - (formData.images ? formData.images.length : 0) > 1}
+                          onChange={(e) => {
+                            const files = Array.from(e.target.files || []);
+                            const limit = 3 - (formData.images ? formData.images.length : 0);
+                            const allowedFiles = files.slice(0, limit);
+                            
+                            allowedFiles.forEach(file => {
+                              const reader = new FileReader();
+                              reader.onloadend = () => {
+                                setFormData(prev => {
+                                  const updated = [...(prev.images || []), reader.result];
+                                  return {
+                                    ...prev,
+                                    images: updated,
+                                    image: updated[0] || ''
+                                  };
+                                });
+                              };
+                              reader.readAsDataURL(file);
+                            });
+                          }}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+                  
+                  <p className="text-[8px] text-gray-400 font-mono">
+                    Выберите JPG, PNG или WEBP. Изображения сохраняются локально.
+                  </p>
+                </div>
+
+                <div className="flex gap-3 pt-4 border-t border-gray-150">
+                  <button
+                    type="button"
+                    onClick={() => setShowFormModal(false)}
+                    className="flex-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-[#111111] hover:bg-[#A38D6D] text-white font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer"
+                  >
+                    Зафиксировать в реестре
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+    </div>
+  );
+}

@@ -1,0 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900&family=Hanken+Grotesk:ital,wght@0,100..900;1,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Montserrat:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bone: #f3efe7;
+  --color-paper: #faf8f3;
+  --color-paper-2: #fffefb;
+  --color-ink: #141518;
+  --color-ink-2: #4a4d52;
+  --color-ink-3: #82858b;
+
+  --color-amber-brand: #c4862f;
+  --color-amber-bright: #e6a951;
+  --color-amber-soft: #f0d9b4;
+  --color-amber-deep: #a96a26;
+  --color-amber-glow: rgba(230, 169, 81, 0.5);
+  --color-cream: #f5f1e8;
+  --color-sage: #6f7d6f;
+
+  --color-line: rgba(20, 21, 24, 0.12);
+  --color-line-soft: rgba(20, 21, 24, 0.07);
+
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+  --font-montserrat: "Montserrat", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+:root {
+  --bone: #f3efe7;
+  --paper: #faf8f3;
+  --paper-2: #fffefb;
+  --ink: #141518;
+  --ink-2: #4a4d52;
+  --ink-3: #82858b;
+
+  --amber: #c4862f;
+  --amber-bright: #e6a951;
+  --amber-soft: #f0d9b4;
+  --amber-deep: #a96a26;
+  --amber-glow: rgba(230, 169, 81, 0.5);
+  --cream: #f5f1e8;
+  --sage: #6f7d6f;
+
+  --line: rgba(20, 21, 24, 0.12);
+  --line-soft: rgba(20, 21, 24, 0.07);
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'Hanken Grotesk', system-ui, -apple-system, sans-serif;
+  --font-montserrat: 'Montserrat', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  color: var(--ink);
+  background: var(--bone);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* subtle paper grain overlay */
+.paper-grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* custom styling helpers */
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-sans-custom {
+  font-family: var(--font-sans);
+}
+
+.font-montserrat {
+  font-family: var(--font-montserrat);
+}
+
+.font-mono-custom {
+  font-family: var(--font-mono);
+}
+
+/* Scrollbar styles to match the warm paper feel */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bone);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(20, 21, 24, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(20, 21, 24, 0.25);
+}

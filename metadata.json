@@ -1,0 +1,6 @@
+{
+  "name": "Atria Investor Dashboard",
+  "description": "Premium real estate tokenization and investor dashboard mirroring the elegant ATRIA editorial design system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
