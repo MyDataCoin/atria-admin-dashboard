@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { mapHolderFromInvestment } from '../api/mappers';
+import { mapHolderFromInvestment, mapPropertyToCreateRequest } from '../api/mappers';
 import { 
   Building, 
   MapPin, 
@@ -24,6 +24,44 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// Re-encode an image to WebP with light compression (quality 0.85 → ≤~15% quality loss),
+// optionally downscaling very large photos, to keep uploads small and avoid HTTP 413.
+// Returns a WebP Blob; falls back to the original file on any error.
+function compressImage(file, maxDim = 2048, quality = 0.85) {
+  return new Promise((resolve) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) return resolve(file);
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          // Some browsers ignore webp and return png; only accept a real webp result.
+          if (blob && blob.type === 'image/webp') resolve(blob);
+          else resolve(file);
+        },
+        'image/webp',
+        quality
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(file);
+    };
+    img.src = url;
+  });
+}
+
 // Formats an amount already expressed in its own currency (no USD conversion),
 // unlike utils.formatVal which converts from USD. Backend token prices are native.
 function formatMoney(amount, currencyCode = 'USD') {
@@ -36,8 +74,9 @@ function formatMoney(amount, currencyCode = 'USD') {
 }
 
 export default function PropertiesList({
-  properties, 
+  properties,
   setProperties,
+  onRefreshProperties,
   documents,
   setDocuments,
   publications,
@@ -46,6 +85,9 @@ export default function PropertiesList({
   currency = 'USD',
   onAddLog
 }) {
+  // Saving state for the create-on-backend flow (create + image uploads).
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [selectedProp, setSelectedProp] = useState(null);
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   // Real investor shares for the opened property (from backend). null = not loaded → demo fallback.
@@ -178,14 +220,19 @@ export default function PropertiesList({
       description: '',
       // Тип объекта: коммерческая или жилая недвижимость
       type: 'Жилая недвижимость',
-      images: ['https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800'],
-      image: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800',
-      status: 'draft'
-      // Экономика (оценка, доход, цена токена, себестоимость) задаётся в Инвест-размещении
+      images: [],
+      imageFiles: [], // real File objects to upload after the property is created
+      image: '',
+      status: 'draft',
+      // Обязательно для POST /properties (property = оферта на бэке)
+      tokenPrice: 50,
+      totalTokens: 10000,
+      currency: 'KGS',
     });
     setFormDocs([]);
     setFormDocCategory('legal');
     setFormDocTitle('');
+    setSaveError('');
     setShowFormModal(true);
   };
 
@@ -237,42 +284,80 @@ export default function PropertiesList({
     );
   };
 
-  const handleSaveForm = (e) => {
+  const handleSaveForm = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.city) return;
-
-    // Persist documents attached in the modal (keep name in sync with the property)
-    const syncedDocs = formDocs.map(d => ({
-      ...d,
-      propertyId: formData.id,
-      propertyName: formData.name
-    }));
-    const otherDocs = documents.filter(d => d.propertyId !== formData.id);
-    setDocuments([...syncedDocs, ...otherDocs]);
+    if (!formData.name) return;
 
     if (formMode === 'create') {
-      setProperties([...properties, formData]);
-      onAddLog(
-        'Property Asset Created',
-        `Создана новая запись актива недвижимости "${formData.name}" в городе ${formData.city}. Статус: ${formData.status.toUpperCase()}${
-          syncedDocs.length ? `. Прикреплено документов: ${syncedDocs.length}` : ''
-        }`
-      );
-    } else {
-      const updated = properties.map(p => p.id === formData.id ? formData : p);
-      setProperties(updated);
-      onAddLog(
-        'Property Asset Updated',
-        `Обновлены кадастровые и токенизационные параметры актива "${formData.name}".`
-      );
+      // Persist on the backend: 1) create property -> id, 2) upload each image.
+      setSaving(true);
+      setSaveError('');
+      try {
+        const newId = await api.properties.create(mapPropertyToCreateRequest(formData));
+
+        const files = (formData.imageFiles || []).slice(0, 3);
+        for (const file of files) {
+          const compressed = await compressImage(file); // → WebP, light compression
+          const isWebp = compressed?.type === 'image/webp';
+          const base = (file.name || 'photo').replace(/\.[^.]+$/, '');
+          const name = base + (isWebp ? '.webp' : '');
+          // The backend uses optimistic concurrency on the property row and may return 409
+          // ("please retry") when adding an image. Retry a few times with a small backoff.
+          for (let attempt = 0; ; attempt++) {
+            try {
+              await api.properties.uploadImage(newId, compressed, name);
+              break;
+            } catch (err) {
+              if (err?.status === 409 && attempt < 3) {
+                await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+                continue;
+              }
+              throw err;
+            }
+          }
+        }
+
+        // Documents are kept locally (no backend docs-create wired here) under the new id.
+        if (formDocs.length) {
+          const synced = formDocs.map(d => ({ ...d, propertyId: newId, propertyName: formData.name }));
+          setDocuments([...synced, ...documents.filter(d => d.propertyId !== formData.id)]);
+        }
+
+        onAddLog(
+          'Property Asset Created',
+          `Создан объект "${formData.name}" на сервере${files.length ? `, загружено фото: ${files.length}` : ''}.`
+        );
+        setShowFormModal(false);
+        // Refresh from the backend so the new property (with photos) appears.
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        setSaveError(
+          err?.status === 401
+            ? 'Нужен вход администратора (нет/просрочен токен)'
+            : err?.status === 403
+              ? 'Недостаточно прав (нужна роль Admin)'
+              : err?.status === 413
+                ? 'Фото слишком большое для сервера — уменьшите файл или поднимите лимит на бэке (nginx client_max_body_size)'
+                : err?.status === 409
+                  ? 'Конфликт параллельного изменения на сервере — попробуйте ещё раз (или починить concurrency в AddPropertyImageCommand на бэке)'
+                  : (err?.problem?.detail || err?.message || 'Не удалось создать объект')
+        );
+      } finally {
+        setSaving(false);
+      }
+      return;
     }
-    
-    // Update selected property view if editing currently open one
+
+    // EDIT: local only — the backend has no property-update endpoint yet.
+    const syncedDocs = formDocs.map(d => ({ ...d, propertyId: formData.id, propertyName: formData.name }));
+    setDocuments([...syncedDocs, ...documents.filter(d => d.propertyId !== formData.id)]);
+    const updated = properties.map(p => p.id === formData.id ? formData : p);
+    setProperties(updated);
+    onAddLog('Property Asset Updated', `Обновлены параметры актива "${formData.name}" (локально).`);
     if (selectedProp && selectedProp.id === formData.id) {
       setSelectedProp(formData);
       setActiveImgIndex(0);
     }
-
     setShowFormModal(false);
   };
 
@@ -998,7 +1083,7 @@ export default function PropertiesList({
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Город</label>
                     <input 
-                      type="text" required placeholder="Киото / Цуг"
+                      type="text" placeholder="Киото / Цуг"
                       value={formData.city} onChange={(e) => setFormData({...formData, city: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                     />
@@ -1007,7 +1092,7 @@ export default function PropertiesList({
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Страна</label>
                     <input
-                      type="text" required placeholder="Швейцария"
+                      type="text" placeholder="Швейцария"
                       value={formData.country} onChange={(e) => setFormData({...formData, country: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                     />
@@ -1078,10 +1163,43 @@ export default function PropertiesList({
                   </div>
                 </div>
 
-                <p className="text-[9px] text-gray-400 font-mono bg-[#FBFBFA] border border-gray-100 rounded p-2.5 leading-relaxed">
-                  Оценочная стоимость, доходность, цена и себестоимость токена задаются при создании
-                  <span className="font-bold text-gray-600"> Инвест-размещения</span> для этого объекта.
-                </p>
+                {/* Tokenization — required by POST /properties (property = offering on the backend) */}
+                {formMode === 'create' && (
+                  <div className="border-t border-gray-100 pt-4">
+                    <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                      Параметры выпуска (обязательно)
+                    </span>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за токен</label>
+                        <input
+                          type="number" min="1" step="any" required
+                          value={formData.tokenPrice ?? ''} onChange={(e) => setFormData({...formData, tokenPrice: Number(e.target.value)})}
+                          className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Всего токенов</label>
+                        <input
+                          type="number" min="1" required
+                          value={formData.totalTokens ?? ''} onChange={(e) => setFormData({...formData, totalTokens: Number(e.target.value)})}
+                          className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Валюта</label>
+                        <select
+                          value={formData.currency || 'KGS'} onChange={(e) => setFormData({...formData, currency: e.target.value})}
+                          className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        >
+                          <option value="KGS">KGS</option>
+                          <option value="USD">USD</option>
+                          <option value="EUR">EUR</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Images Upload Area */}
                 <div className="border-t border-gray-100 pt-4">
@@ -1098,10 +1216,12 @@ export default function PropertiesList({
                           type="button"
                           onClick={() => {
                             const updatedImages = formData.images.filter((_, i) => i !== idx);
+                            const updatedFiles = (formData.imageFiles || []).filter((_, i) => i !== idx);
                             setFormData({
                               ...formData,
                               images: updatedImages,
-                              image: updatedImages[0] || ''
+                              image: updatedImages[0] || '',
+                              imageFiles: updatedFiles
                             });
                           }}
                           className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white text-[10px] uppercase font-bold tracking-wider transition-opacity cursor-pointer"
@@ -1137,7 +1257,9 @@ export default function PropertiesList({
                                   return {
                                     ...prev,
                                     images: updated,
-                                    image: updated[0] || ''
+                                    image: updated[0] || '',
+                                    // Keep the real File to upload after the property is created
+                                    imageFiles: [...(prev.imageFiles || []), file]
                                   };
                                 });
                               };
@@ -1151,7 +1273,7 @@ export default function PropertiesList({
                   </div>
                   
                   <p className="text-[8px] text-gray-400 font-mono">
-                    Выберите JPG, PNG или WEBP. Изображения сохраняются локально.
+                    Выберите JPG, PNG или WEBP (макс. 3). При создании фото загружаются на сервер.
                   </p>
                 </div>
 
@@ -1216,19 +1338,27 @@ export default function PropertiesList({
                   </div>
                 </div>
 
+                {saveError && (
+                  <div className="text-[10px] font-mono text-rose-700 bg-rose-50 border border-rose-200 rounded px-3 py-2">
+                    ⚠ {saveError}
+                  </div>
+                )}
+
                 <div className="flex gap-3 pt-4 border-t border-gray-150">
                   <button
                     type="button"
+                    disabled={saving}
                     onClick={() => setShowFormModal(false)}
-                    className="flex-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer"
+                    className="flex-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer disabled:opacity-50"
                   >
                     Отмена
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-[#111111] hover:bg-[#A38D6D] text-white font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer"
+                    disabled={saving}
+                    className="flex-1 bg-[#111111] hover:bg-[#A38D6D] text-white font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer disabled:opacity-60"
                   >
-                    Зафиксировать в реестре
+                    {saving ? 'Сохранение…' : formMode === 'create' ? 'Создать объект' : 'Сохранить изменения'}
                   </button>
                 </div>
               </form>

@@ -6,6 +6,18 @@ import { request, tokenStore } from './client';
 // ---- Auth (phone-only, Kyrgyzstan +996) -----------------------------------
 
 export const auth = {
+  // Admin/staff login (username + password) -> access + refresh, both persisted so the
+  // client can auto-refresh the access token on 401.
+  adminLogin: async (username, password) => {
+    const tokens = await request('/auth/admin/login', {
+      method: 'POST',
+      body: { username, password },
+      auth: false,
+    });
+    tokenStore.set(tokens);
+    return tokens;
+  },
+
   // Step 1: request an SMS OTP for the given phone (+996XXXXXXXXX). Returns 204.
   requestOtp: (phone) =>
     request('/auth/register/phone/request-otp', { method: 'POST', body: { phone }, auth: false }),
@@ -43,6 +55,14 @@ export const properties = {
   get: (id) => request(`/properties/${id}`, { auth: false }),
   // Admin only. body: { name, description?, address?, totalValue, tokenPrice, totalTokens, currency }
   create: (body) => request('/properties', { method: 'POST', body }),
+  // Admin only. Uploads one image (max 3/property). Returns { id, url }.
+  uploadImage: (id, file, filename) => {
+    const form = new FormData();
+    form.append('file', file, filename || file.name || 'photo.jpg');
+    return request(`/properties/${id}/images`, { method: 'POST', body: form });
+  },
+  deleteImage: (id, imageId) =>
+    request(`/properties/${id}/images/${imageId}`, { method: 'DELETE' }),
 };
 
 // ---- Investments ----------------------------------------------------------

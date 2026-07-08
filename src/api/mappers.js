@@ -10,6 +10,13 @@ const PLACEHOLDER_IMAGE =
  * (type, city, developer, floors, images, …) are left empty/defaulted.
  */
 export function mapPropertyFromApi(p) {
+  // Backend now returns real photos (PropertyImageDto { id, url }); fall back to a
+  // placeholder only when the property has none.
+  const apiImages = Array.isArray(p.images)
+    ? p.images.map((img) => (typeof img === 'string' ? img : img?.url)).filter(Boolean)
+    : [];
+  const images = apiImages.length > 0 ? apiImages : [PLACEHOLDER_IMAGE];
+
   return {
     id: p.id,
     name: p.name,
@@ -30,8 +37,8 @@ export function mapPropertyFromApi(p) {
     developer: '',
     floors: null,
     completionYear: null,
-    images: [PLACEHOLDER_IMAGE],
-    image: PLACEHOLDER_IMAGE,
+    images,
+    image: images[0],
 
     _source: 'api',
   };
@@ -80,6 +87,34 @@ export function mapInvestorFromApi(dto) {
 }
 
 /**
+ * Mapped dashboard property -> investment placement (offering).
+ * The backend has no separate offering entity; each property IS an offering:
+ * target = totalTokens×tokenPrice, raised = (totalTokens−available)×tokenPrice.
+ */
+export function mapPlacementFromProperty(p) {
+  const tokenSupply = p.totalTokens ?? 0;
+  const available = p.availableTokens ?? tokenSupply;
+  const sold = Math.max(0, tokenSupply - available);
+  const tokenPrice = p.tokenPrice ?? 0;
+  return {
+    id: `plc-${String(p.id).slice(0, 8)}`,
+    propertyId: p.id,
+    propertyName: p.name,
+    tokenPrice,
+    tokenSupply,
+    targetAmount: tokenSupply * tokenPrice,
+    raisedAmount: sold * tokenPrice,
+    status: p.status === 'active' ? 'active' : p.status === 'archived' ? 'completed' : 'draft',
+    investorsCount: 0, // not exposed by the API yet
+    launchDate: '—',
+    endDate: '—',
+    currency: p.currency || 'USD',
+    description: p.description || `Публичное размещение долей объекта «${p.name}».`,
+    _source: 'api',
+  };
+}
+
+/**
  * Investment row for a property (proposed backend DTO) -> holder row for the object card.
  * Tokens are taken as-is, or derived from amount / tokenPrice when the backend omits them.
  */
@@ -107,13 +142,17 @@ export function mapHolderFromInvestment(dto, property = {}) {
  * Only the fields the backend accepts are sent.
  */
 export function mapPropertyToCreateRequest(form) {
+  const tokenPrice = Number(form.tokenPrice ?? 0);
+  const totalTokens = Number(form.totalTokens ?? 0);
+  // Backend requires totalValue > 0; default it to price × supply when not given.
+  const totalValue = Number(form.totalValue ?? form.currentValuation ?? tokenPrice * totalTokens);
   return {
     name: form.name,
     description: form.description || null,
     address: form.address || null,
-    totalValue: Number(form.totalValue ?? form.currentValuation ?? 0),
-    tokenPrice: Number(form.tokenPrice ?? 0),
-    totalTokens: Number(form.totalTokens ?? 0),
+    totalValue,
+    tokenPrice,
+    totalTokens,
     currency: form.currency || 'USD',
   };
 }

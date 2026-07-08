@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import api from './api';
-import { mapPropertyFromApi, mapInvestorFromApi } from './api/mappers';
+import api, { decodeJwt, tokenStore } from './api';
+import { mapPropertyFromApi, mapInvestorFromApi, mapPlacementFromProperty } from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Overview from './components/Overview';
@@ -30,8 +30,22 @@ import {
 import { Shield, Key, Eye, Lock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// Build the dashboard user object from a decoded JWT payload.
+function userFromToken(token) {
+  const p = token ? decodeJwt(token) : null;
+  if (!p) return null;
+  return {
+    id: p.sub,
+    name: p.email || p.role || 'Admin',
+    username: p.email || 'admin',
+    role: p.role,
+    avatar: p.role || 'ADMIN',
+  };
+}
+
 export default function App() {
-  const [currentUser, setCurrentUser] = useState(INITIAL_ADMINS[0]); // default logged in
+  // Auto-login from a token persisted in localStorage; auto-refresh keeps it alive.
+  const [currentUser, setCurrentUser] = useState(() => userFromToken(tokenStore.access));
   const [currentSection, setCurrentSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currency, setCurrency] = useState('KGS');
@@ -40,6 +54,7 @@ export default function App() {
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [loggingIn, setLoggingIn] = useState(false);
 
   // Fully reactive state for global portfolio stats & ledgers
   const [admins, setAdmins] = useState(INITIAL_ADMINS);
@@ -60,56 +75,48 @@ export default function App() {
 
   // Load the real property catalogue from the backend (public GET, no auth).
   // On failure we keep the demo data so the dashboard never renders empty.
-  useEffect(() => {
-    let cancelled = false;
+  const loadProperties = React.useCallback(() => {
     setPropertiesLoading(true);
-    api.properties
+    return api.properties
       .list()
       .then((list) => {
-        if (cancelled) return;
-        setProperties(Array.isArray(list) ? list.map(mapPropertyFromApi) : []);
+        const mapped = Array.isArray(list) ? list.map(mapPropertyFromApi) : [];
+        setProperties(mapped);
+        // Offerings/placements are derived from the same properties (no separate API entity).
+        setPlacements(mapped.map(mapPlacementFromProperty));
         setPropertiesError('');
       })
       .catch((err) => {
-        if (cancelled) return;
-        // Keep INITIAL_PROPERTIES as a fallback; surface the reason in a banner.
         setPropertiesError(err?.message || 'Не удалось загрузить объекты с сервера');
       })
-      .finally(() => {
-        if (!cancelled) setPropertiesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setPropertiesLoading(false));
   }, []);
 
-  // Load the investor registry (user ⋈ kyc_profiles) from the backend admin endpoint.
-  // The endpoint may not exist yet / needs an Admin JWT — on any failure we keep the
-  // demo investors and show the reason in a banner.
   useEffect(() => {
-    let cancelled = false;
+    loadProperties();
+  }, [loadProperties]);
+
+  // Load the investor registry (user ⋈ kyc_profiles). Needs an Admin JWT — on any
+  // failure we keep the demo investors and show the reason in a banner.
+  const loadInvestors = React.useCallback(() => {
     setInvestorsLoading(true);
-    api.admin
+    return api.admin
       .listInvestors()
       .then((list) => {
-        if (cancelled) return;
-        // Show real users only — exclude the admin/service accounts that have no KYC
-        // profile (status is null/0 for them).
+        // Show real users only — exclude admin/service accounts with no KYC (status null).
         const rows = Array.isArray(list) ? list.filter((u) => u.status != null) : [];
         setInvestors(rows.map(mapInvestorFromApi));
         setInvestorsError('');
       })
       .catch((err) => {
-        if (cancelled) return;
         setInvestorsError(err?.message || 'Реестр инвесторов недоступен');
       })
-      .finally(() => {
-        if (!cancelled) setInvestorsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setInvestorsLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadInvestors();
+  }, [loadInvestors]);
 
   // Helper function to append a live log to the immutable audit logs
   const handleAddAuditLog = (action, details, level = 'SUCCESS') => {
@@ -125,34 +132,44 @@ export default function App() {
     setAuditLogs((prev) => [newLog, ...prev]);
   };
 
-  // Login handler
-  const handleLoginSubmit = (e) => {
+  // Login handler — real admin login (POST /auth/admin/login). Tokens are persisted in
+  // localStorage; the client auto-refreshes the access token so the session stays alive.
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
-    const matched = admins.find(
-      (a) => a.username.toLowerCase() === loginUser.toLowerCase() && a.password === loginPass
-    );
-    if (matched) {
-      setCurrentUser(matched);
-      setLoginError('');
-      // Log successful sign-in
+    setLoggingIn(true);
+    setLoginError('');
+    try {
+      const tokens = await api.auth.adminLogin(loginUser.trim(), loginPass);
+      const user = userFromToken(tokens.accessToken) || { name: loginUser, username: loginUser };
+      setCurrentUser(user);
+      setLoginPass('');
+      // Load protected data now that we're authenticated.
+      loadInvestors();
       const newLog = {
         id: `audit-login-${Date.now()}`,
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        adminName: matched.name,
+        adminName: user.name,
         action: 'Administrator Auth',
         details: `Успешный вход в систему администратора. Сессия открыта.`,
         status: 'SUCCESS',
         ipAddress: '194.230.14.82'
       };
       setAuditLogs((prev) => [newLog, ...prev]);
-    } else {
-      setLoginError('Неверный логин или пароль. Пожалуйста, выберите пресет ниже.');
+    } catch (err) {
+      setLoginError(
+        err?.status === 401 || err?.status === 400
+          ? 'Неверный логин или пароль.'
+          : (err?.message || 'Не удалось войти. Проверьте соединение с сервером.')
+      );
+    } finally {
+      setLoggingIn(false);
     }
   };
 
   // Logout handler
   const handleLogout = () => {
     handleAddAuditLog('Administrator Signout', 'Администратор завершил сессию и вышел из системы.');
+    api.auth.logout(); // clears tokens from localStorage
     setCurrentUser(null);
     setLoginUser('');
     setLoginPass('');
@@ -203,6 +220,7 @@ export default function App() {
             <PropertiesList
               properties={properties}
               setProperties={setProperties}
+              onRefreshProperties={loadProperties}
               documents={documents}
               setDocuments={setDocuments}
               publications={publications}
@@ -215,13 +233,31 @@ export default function App() {
         );
       case 'offerings':
         return (
-          <OfferingsManager 
-            placements={placements}
-            setPlacements={setPlacements}
-            properties={properties}
-            currency={currency}
-            onAddLog={handleAddAuditLog}
-          />
+          <div className="space-y-4">
+            {propertiesLoading && (
+              <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500 bg-gray-50 border border-gray-100 rounded px-3 py-2">
+                <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+                Загрузка размещений из API…
+              </div>
+            )}
+            {!propertiesLoading && propertiesError && (
+              <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                ⚠ API недоступен — показаны демо-данные. {propertiesError}
+              </div>
+            )}
+            {!propertiesLoading && !propertiesError && (
+              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
+                ✓ Размещения построены из каталога объектов: {placements.length}
+              </div>
+            )}
+            <OfferingsManager
+              placements={placements}
+              setPlacements={setPlacements}
+              properties={properties}
+              currency={currency}
+              onAddLog={handleAddAuditLog}
+            />
+          </div>
         );
       case 'investors':
         return (
@@ -360,36 +396,26 @@ export default function App() {
 
             <button
               type="submit"
-              className="w-full py-3 bg-[#A38D6D] hover:bg-[#8e7b5e] text-white rounded font-mono text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer shadow-md"
+              disabled={loggingIn}
+              className="w-full py-3 bg-[#A38D6D] hover:bg-[#8e7b5e] text-white rounded font-mono text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer shadow-md disabled:opacity-60"
             >
-              Авторизоваться
+              {loggingIn ? 'Вход…' : 'Авторизоваться'}
             </button>
           </form>
 
-          {/* Preset quick logins */}
-          <div className="border-t border-white/10 pt-4 space-y-2.5">
-            <span className="block text-[8px] text-center uppercase tracking-wider text-gray-500 font-bold font-mono">
-              Быстрый вход для сотрудников:
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              {admins.map((adm) => (
-                <button
-                  key={adm.id}
-                  onClick={() => {
-                    setLoginUser(adm.username);
-                    setLoginPass(adm.password);
-                  }}
-                  className="bg-white/5 hover:bg-white/10 border border-white/5 text-[9px] text-gray-300 hover:text-white py-2 rounded transition-colors font-mono cursor-pointer"
-                >
-                  {adm.username.toUpperCase()}
-                  <span className="block text-[7px] text-[#A38D6D] mt-0.5">{adm.avatar}</span>
-                </button>
-              ))}
-            </div>
+          {/* Quick fill for the seeded admin account */}
+          <div className="border-t border-white/10 pt-4">
+            <button
+              type="button"
+              onClick={() => { setLoginUser('admin'); setLoginPass('admin'); }}
+              className="w-full bg-white/5 hover:bg-white/10 border border-white/5 text-[9px] text-gray-300 hover:text-white py-2 rounded transition-colors font-mono cursor-pointer"
+            >
+              Подставить admin / admin
+            </button>
           </div>
 
           <p className="text-[8px] text-center text-gray-600 font-mono">
-            Вход зашифрован SSL SHA-256. Регистрация в реестре RWA.
+            Вход через POST /auth/admin/login. Сессия хранится в localStorage.
           </p>
 
         </div>

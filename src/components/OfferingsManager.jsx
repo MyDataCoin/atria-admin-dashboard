@@ -14,7 +14,17 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { formatVal } from '../utils';
+
+// Formats an amount already in its own currency (no USD conversion). Backend
+// placement amounts are native (e.g. KGS), unlike utils.formatVal which converts.
+function formatMoney(amount, currencyCode = 'USD') {
+  if (amount === null || amount === undefined || isNaN(amount)) return '—';
+  const n = Number(amount).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (currencyCode === 'USD') return `$${n}`;
+  if (currencyCode === 'EUR') return `€${n}`;
+  if (currencyCode === 'KGS') return `${n} с`;
+  return `${n} ${currencyCode}`;
+}
 
 export default function OfferingsManager({ 
   placements, 
@@ -60,7 +70,7 @@ export default function OfferingsManager({
     setPlacements([...placements, added]);
     onAddLog(
       'New Offering Drafted',
-      `Создано новое размещение для "${matchedProp.name}" с целевым капиталом ${formatVal(added.targetAmount, currency)}.`
+      `Создано новое размещение для "${matchedProp.name}" с целевым капиталом ${formatMoney(added.targetAmount, added.currency)}.`
     );
     setShowCreateModal(false);
   };
@@ -99,7 +109,7 @@ export default function OfferingsManager({
 
     onAddLog(
       'Offering Refund Triggered',
-      `ЗАПУЩЕН ВОЗВРАТ СРЕДСТВ ИНВЕСТОРАМ по несостоявшемуся размещению "${matched?.propertyName}". Объем возвратов: ${formatVal(matched?.raisedAmount || 0, currency)}.`
+      `ЗАПУЩЕН ВОЗВРАТ СРЕДСТВ ИНВЕСТОРАМ по несостоявшемуся размещению "${matched?.propertyName}". Объем возвратов: ${formatMoney(matched?.raisedAmount || 0, matched?.currency)}.`
     );
 
     if (selectedPlc && selectedPlc.id === plcId) {
@@ -220,7 +230,7 @@ export default function OfferingsManager({
                 <div className="flex justify-between font-mono text-[10px] text-gray-500">
                   <span>Объем сборов:</span>
                   <span className="font-bold text-gray-800">
-                    {formatVal(plc.raisedAmount, currency)} / {formatVal(plc.targetAmount, currency)}
+                    {formatMoney(plc.raisedAmount, plc.currency)} / {formatMoney(plc.targetAmount, plc.currency)}
                   </span>
                 </div>
                 <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
@@ -285,7 +295,7 @@ export default function OfferingsManager({
                   </div>
                   <div>
                     <span className="text-[8px] uppercase text-gray-400 block font-semibold">Цена за ATR токен</span>
-                    <span className="text-gray-800 font-bold">{formatVal(selectedPlc.tokenPrice, currency)}</span>
+                    <span className="text-gray-800 font-bold">{formatMoney(selectedPlc.tokenPrice, selectedPlc.currency)}</span>
                   </div>
                   <div>
                     <span className="text-[8px] uppercase text-gray-400 block font-semibold">Общая эмиссия токенов</span>
@@ -293,7 +303,7 @@ export default function OfferingsManager({
                   </div>
                   <div>
                     <span className="text-[8px] uppercase text-gray-400 block font-semibold">Целевой капитал</span>
-                    <span className="text-gray-800 font-bold">{formatVal(selectedPlc.targetAmount, currency)}</span>
+                    <span className="text-gray-800 font-bold">{formatMoney(selectedPlc.targetAmount, selectedPlc.currency)}</span>
                   </div>
                 </div>
 
@@ -405,7 +415,7 @@ export default function OfferingsManager({
                   >
                     <option value="">-- Выбрать из кадастра --</option>
                     {properties.map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.city})</option>
+                      <option key={p.id} value={p.id}>{p.city ? `${p.name} (${p.city})` : p.name}</option>
                     ))}
                   </select>
                 </div>
