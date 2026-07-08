@@ -17,6 +17,16 @@ export default defineConfig(() => {
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Dev-only reverse proxy: the browser calls same-origin /api/* and Vite forwards
+      // it to the backend, sidestepping the missing CORS headers. In dev the API client
+      // uses an empty base URL so requests hit this proxy.
+      proxy: {
+        '/api': {
+          target: process.env.VITE_API_PROXY_TARGET || 'https://atria-api.eaysdev.online',
+          changeOrigin: true,
+          secure: true,
+        },
+      },
     },
   };
 });

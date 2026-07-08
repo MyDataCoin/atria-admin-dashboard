@@ -22,7 +22,18 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-export default function PropertiesList({ 
+// Formats an amount already expressed in its own currency (no USD conversion),
+// unlike utils.formatVal which converts from USD. Backend token prices are native.
+function formatMoney(amount, currencyCode = 'USD') {
+  if (amount === null || amount === undefined || isNaN(amount)) return '—';
+  const n = Number(amount).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (currencyCode === 'USD') return `$${n}`;
+  if (currencyCode === 'EUR') return `€${n}`;
+  if (currencyCode === 'KGS') return `${n} с`;
+  return `${n} ${currencyCode}`;
+}
+
+export default function PropertiesList({
   properties, 
   setProperties,
   documents,
@@ -387,28 +398,51 @@ export default function PropertiesList({
               {/* Body Details */}
               <div className="p-5 flex-1 flex flex-col justify-between">
                 <div>
-                  <div className="flex items-center gap-1 text-[10px] text-[#A38D6D] font-bold font-mono uppercase tracking-wider">
-                    <MapPin size={10} />
-                    <span>{prop.city}, {prop.country}</span>
-                  </div>
-                  
+                  {(prop.city || prop.country) && (
+                    <div className="flex items-center gap-1 text-[10px] text-[#A38D6D] font-bold font-mono uppercase tracking-wider">
+                      <MapPin size={10} />
+                      <span>{[prop.city, prop.country].filter(Boolean).join(', ')}</span>
+                    </div>
+                  )}
+
                   <h3 className="text-sm font-serif font-bold text-gray-900 mt-1 leading-tight group-hover:text-[#A38D6D] transition-colors">
                     {prop.name}
                   </h3>
 
-                  <p className="text-[11px] text-gray-400 mt-1">{prop.type} • Год: {prop.completionYear}</p>
+                  {(prop.type || prop.completionYear) && (
+                    <p className="text-[11px] text-gray-400 mt-1">
+                      {[prop.type, prop.completionYear ? `Год: ${prop.completionYear}` : null].filter(Boolean).join(' • ')}
+                    </p>
+                  )}
                 </div>
 
-                {/* Object info readouts */}
+                {/* Readouts: token economics for API/tokenized objects, else object info */}
                 <div className="grid grid-cols-2 gap-4 border-t border-gray-50 pt-4 mt-4 text-[11px]">
-                  <div>
-                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Застройщик</span>
-                    <span className="font-bold text-gray-800 truncate block">{prop.developer || '—'}</span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Этажность</span>
-                    <span className="font-bold font-mono text-gray-800">{prop.floors ? `${prop.floors} эт.` : '—'}</span>
-                  </div>
+                  {prop.tokenPrice != null ? (
+                    <>
+                      <div>
+                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Цена токена</span>
+                        <span className="font-bold font-mono text-gray-800">{formatMoney(prop.tokenPrice, prop.currency)}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Доступно / Всего</span>
+                        <span className="font-bold font-mono text-gray-800">
+                          {(prop.availableTokens ?? 0).toLocaleString()} / {(prop.totalTokens ?? 0).toLocaleString()}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Застройщик</span>
+                        <span className="font-bold text-gray-800 truncate block">{prop.developer || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Этажность</span>
+                        <span className="font-bold font-mono text-gray-800">{prop.floors ? `${prop.floors} эт.` : '—'}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Admin metadata */}
@@ -505,7 +539,7 @@ export default function PropertiesList({
                     {selectedProp.name}
                   </h3>
                   <p className="text-[10px] text-gray-300 font-mono mt-0.5 uppercase tracking-wide">
-                    {selectedProp.city}, {selectedProp.country} • {selectedProp.type}
+                    {[selectedProp.city, selectedProp.country, selectedProp.type].filter(Boolean).join(' • ') || 'Токенизированный актив RWA'}
                   </p>
                 </div>
               </div>
@@ -545,44 +579,81 @@ export default function PropertiesList({
                       </div>
                     )}
 
-                    <div>
-                      <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Характеристики объекта</h4>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
-                        {selectedProp.address && (
-                          <div className="sm:col-span-2 border-b border-gray-100 pb-2.5">
-                            <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Полный адрес</span>
-                            <span className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
-                              <MapPin size={14} className="text-[#A38D6D] shrink-0" /> {selectedProp.address}
-                            </span>
+                    {selectedProp.tokenPrice != null && (
+                      <div>
+                        <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Токенизация</h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Цена токена</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">{formatMoney(selectedProp.tokenPrice, selectedProp.currency)}</span>
                           </div>
-                        )}
-
-                        <div className="border-b border-gray-100 pb-2.5">
-                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Тип недвижимости</span>
-                          <span className="text-sm font-semibold text-gray-900">{selectedProp.type || '—'}</span>
-                        </div>
-
-                        <div className="border-b border-gray-100 pb-2.5">
-                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Город / Страна</span>
-                          <span className="text-sm font-semibold text-gray-900">{selectedProp.city}, {selectedProp.country}</span>
-                        </div>
-
-                        <div className="border-b border-gray-100 pb-2.5">
-                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Застройщик</span>
-                          <span className="text-sm font-semibold text-gray-900">{selectedProp.developer || '—'}</span>
-                        </div>
-
-                        <div className="border-b border-gray-100 pb-2.5">
-                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Этажность</span>
-                          <span className="text-sm font-semibold text-gray-900">{selectedProp.floors ? `${selectedProp.floors} эт.` : '—'}</span>
-                        </div>
-
-                        <div className="border-b border-gray-100 pb-2.5">
-                          <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Год постройки</span>
-                          <span className="text-sm font-semibold text-gray-900">{selectedProp.completionYear || '—'}</span>
+                          <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Доступно</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">{(selectedProp.availableTokens ?? 0).toLocaleString()}</span>
+                          </div>
+                          <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Всего токенов</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">{(selectedProp.totalTokens ?? 0).toLocaleString()}</span>
+                          </div>
+                          <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Валюта</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">{selectedProp.currency || '—'}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    )}
+
+                    {(selectedProp.address || selectedProp.type || selectedProp.city ||
+                      selectedProp.developer || selectedProp.floors || selectedProp.completionYear) && (
+                      <div>
+                        <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Характеристики объекта</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-5">
+                          {selectedProp.address && (
+                            <div className="sm:col-span-2 border-b border-gray-100 pb-2.5">
+                              <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Полный адрес</span>
+                              <span className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                                <MapPin size={14} className="text-[#A38D6D] shrink-0" /> {selectedProp.address}
+                              </span>
+                            </div>
+                          )}
+
+                          {selectedProp.type && (
+                            <div className="border-b border-gray-100 pb-2.5">
+                              <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Тип недвижимости</span>
+                              <span className="text-sm font-semibold text-gray-900">{selectedProp.type}</span>
+                            </div>
+                          )}
+
+                          {(selectedProp.city || selectedProp.country) && (
+                            <div className="border-b border-gray-100 pb-2.5">
+                              <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Город / Страна</span>
+                              <span className="text-sm font-semibold text-gray-900">{[selectedProp.city, selectedProp.country].filter(Boolean).join(', ')}</span>
+                            </div>
+                          )}
+
+                          {selectedProp.developer && (
+                            <div className="border-b border-gray-100 pb-2.5">
+                              <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Застройщик</span>
+                              <span className="text-sm font-semibold text-gray-900">{selectedProp.developer}</span>
+                            </div>
+                          )}
+
+                          {selectedProp.floors && (
+                            <div className="border-b border-gray-100 pb-2.5">
+                              <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Этажность</span>
+                              <span className="text-sm font-semibold text-gray-900">{selectedProp.floors} эт.</span>
+                            </div>
+                          )}
+
+                          {selectedProp.completionYear && (
+                            <div className="border-b border-gray-100 pb-2.5">
+                              <span className="text-[10px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Год постройки</span>
+                              <span className="text-sm font-semibold text-gray-900">{selectedProp.completionYear}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

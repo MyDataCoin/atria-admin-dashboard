@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import api from './api';
+import { mapPropertyFromApi } from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Overview from './components/Overview';
@@ -43,6 +45,8 @@ export default function App() {
   const [admins, setAdmins] = useState(INITIAL_ADMINS);
   const [stats, setStats] = useState(INITIAL_STATS);
   const [properties, setProperties] = useState(INITIAL_PROPERTIES);
+  const [propertiesLoading, setPropertiesLoading] = useState(false);
+  const [propertiesError, setPropertiesError] = useState('');
   const [placements, setPlacements] = useState(INITIAL_PLACEMENTS);
   const [investors, setInvestors] = useState(INITIAL_INVESTORS);
   const [payouts, setPayouts] = useState(INITIAL_PAYOUTS);
@@ -51,6 +55,31 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
   const [integrations, setIntegrations] = useState(INITIAL_INTEGRATIONS);
   const [tickets, setTickets] = useState(INITIAL_TICKETS);
+
+  // Load the real property catalogue from the backend (public GET, no auth).
+  // On failure we keep the demo data so the dashboard never renders empty.
+  useEffect(() => {
+    let cancelled = false;
+    setPropertiesLoading(true);
+    api.properties
+      .list()
+      .then((list) => {
+        if (cancelled) return;
+        setProperties(Array.isArray(list) ? list.map(mapPropertyFromApi) : []);
+        setPropertiesError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Keep INITIAL_PROPERTIES as a fallback; surface the reason in a banner.
+        setPropertiesError(err?.message || 'Не удалось загрузить объекты с сервера');
+      })
+      .finally(() => {
+        if (!cancelled) setPropertiesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Helper function to append a live log to the immutable audit logs
   const handleAddAuditLog = (action, details, level = 'SUCCESS') => {
@@ -124,17 +153,35 @@ export default function App() {
         );
       case 'properties':
         return (
-          <PropertiesList 
-            properties={properties} 
-            setProperties={setProperties}
-            documents={documents}
-            setDocuments={setDocuments}
-            publications={publications}
-            setPublications={setPublications}
-            investors={investors}
-            currency={currency}
-            onAddLog={handleAddAuditLog}
-          />
+          <div className="space-y-4">
+            {propertiesLoading && (
+              <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500 bg-gray-50 border border-gray-100 rounded px-3 py-2">
+                <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+                Загрузка объектов из API…
+              </div>
+            )}
+            {!propertiesLoading && propertiesError && (
+              <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                ⚠ API недоступен — показаны демо-данные. {propertiesError}
+              </div>
+            )}
+            {!propertiesLoading && !propertiesError && (
+              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
+                ✓ Объекты загружены с бэкенда: {properties.length}
+              </div>
+            )}
+            <PropertiesList
+              properties={properties}
+              setProperties={setProperties}
+              documents={documents}
+              setDocuments={setDocuments}
+              publications={publications}
+              setPublications={setPublications}
+              investors={investors}
+              currency={currency}
+              onAddLog={handleAddAuditLog}
+            />
+          </div>
         );
       case 'offerings':
         return (
