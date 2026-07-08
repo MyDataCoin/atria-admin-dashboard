@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from './api';
-import { mapPropertyFromApi } from './api/mappers';
+import { mapPropertyFromApi, mapInvestorFromApi } from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Overview from './components/Overview';
@@ -49,6 +49,8 @@ export default function App() {
   const [propertiesError, setPropertiesError] = useState('');
   const [placements, setPlacements] = useState(INITIAL_PLACEMENTS);
   const [investors, setInvestors] = useState(INITIAL_INVESTORS);
+  const [investorsLoading, setInvestorsLoading] = useState(false);
+  const [investorsError, setInvestorsError] = useState('');
   const [payouts, setPayouts] = useState(INITIAL_PAYOUTS);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
   const [publications, setPublications] = useState(INITIAL_NEWS_PUBLICATIONS);
@@ -75,6 +77,34 @@ export default function App() {
       })
       .finally(() => {
         if (!cancelled) setPropertiesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load the investor registry (user ⋈ kyc_profiles) from the backend admin endpoint.
+  // The endpoint may not exist yet / needs an Admin JWT — on any failure we keep the
+  // demo investors and show the reason in a banner.
+  useEffect(() => {
+    let cancelled = false;
+    setInvestorsLoading(true);
+    api.admin
+      .listInvestors()
+      .then((list) => {
+        if (cancelled) return;
+        // Show real users only — exclude the admin/service accounts that have no KYC
+        // profile (status is null/0 for them).
+        const rows = Array.isArray(list) ? list.filter((u) => u.status != null) : [];
+        setInvestors(rows.map(mapInvestorFromApi));
+        setInvestorsError('');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setInvestorsError(err?.message || 'Реестр инвесторов недоступен');
+      })
+      .finally(() => {
+        if (!cancelled) setInvestorsLoading(false);
       });
     return () => {
       cancelled = true;
@@ -206,11 +236,29 @@ export default function App() {
         );
       case 'users':
         return (
-          <UsersAndKyc 
-            investors={investors}
-            setInvestors={setInvestors}
-            onAddLog={handleAddAuditLog}
-          />
+          <div className="space-y-4">
+            {investorsLoading && (
+              <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500 bg-gray-50 border border-gray-100 rounded px-3 py-2">
+                <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+                Загрузка реестра инвесторов из API…
+              </div>
+            )}
+            {!investorsLoading && investorsError && (
+              <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                ⚠ Реестр инвесторов недоступен — показаны демо-данные. {investorsError}
+              </div>
+            )}
+            {!investorsLoading && !investorsError && (
+              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
+                ✓ Реестр инвесторов загружен с бэкенда: {investors.length}
+              </div>
+            )}
+            <UsersAndKyc
+              investors={investors}
+              setInvestors={setInvestors}
+              onAddLog={handleAddAuditLog}
+            />
+          </div>
         );
       case 'analytics':
         return (

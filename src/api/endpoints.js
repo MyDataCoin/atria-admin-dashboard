@@ -104,4 +104,11 @@ export const audit = {
     request('/audit', { query: { entityType, entityId } }),
 };
 
-export default { auth, properties, investments, kyc, consent, documents, notifications, audit };
+// ---- Admin: investor/user registry ----------------------------------------
+// GET /users (Admin/Compliance): lists all users with their optional KYC profile
+// (id, phoneNumber, fullName [decrypted], walletAddress, status, createdAtUtc).
+export const admin = {
+  listInvestors: () => request('/users'),
+};
+
+export default { auth, properties, investments, kyc, consent, documents, notifications, audit, admin };

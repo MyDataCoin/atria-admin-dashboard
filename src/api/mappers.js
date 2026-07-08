@@ -37,6 +37,48 @@ export function mapPropertyFromApi(p) {
   };
 }
 
+// Backend KYC status (Pending|UnderReview|Approved|Rejected) -> dashboard status.
+function mapKycStatus(status) {
+  switch (status) {
+    case 'Approved':
+      return 'Approved';
+    case 'Rejected':
+      return 'Failed';
+    case 'UnderReview':
+    case 'Pending':
+      return 'Pending';
+    default:
+      return 'Pending';
+  }
+}
+
+/**
+ * Investor registry row (proposed backend DTO: user ⋈ kyc_profile) -> dashboard investor.
+ * Defensive about missing fields so partial payloads still render. The backend is
+ * phone-only, so `phone` stands in for the contact where the UI expects an email.
+ */
+export function mapInvestorFromApi(dto) {
+  const phone = dto.phoneNumber || dto.phone || '';
+  return {
+    id: dto.id,
+    name: dto.fullName || dto.name || phone || 'Без имени',
+    email: dto.email || phone || '—',
+    phone,
+    walletAddress: dto.walletAddress || '',
+    // status is null for users with no KYC profile yet.
+    kycStatus: dto.status || dto.kycStatus ? mapKycStatus(dto.status || dto.kycStatus) : 'Pending',
+    amlRisk: dto.amlRisk || 'N/A',
+    pepStatus: dto.pepStatus || 'N/A',
+    verificationDate: (dto.verificationDate || dto.createdAtUtc || '').slice(0, 10),
+    status: dto.blocked ? 'Blocked' : 'Active',
+    nationalID: dto.documentNumber || dto.nationalID || '—',
+    country: dto.nationality || dto.country || '—',
+    // No holdings in the registry payload; kept empty so the UI's calculations are safe.
+    holdings: Array.isArray(dto.holdings) ? dto.holdings : [],
+    _source: 'api',
+  };
+}
+
 /**
  * Dashboard create-form data -> CreatePropertyRequest (swagger).
  * Only the fields the backend accepts are sent.

@@ -4,9 +4,10 @@ import {
   ShieldCheck, 
   Search, 
   ExternalLink, 
-  Mail, 
-  Globe, 
-  Database, 
+  Mail,
+  Globe,
+  ShieldAlert,
+  Database,
   FileCheck,
   Lock,
   Smartphone,
@@ -156,7 +157,7 @@ export default function UsersAndKyc({
               <tr className="bg-gray-50 border-b border-gray-100 text-[9px] uppercase tracking-wider text-gray-400 font-bold font-mono">
                 <th className="py-3 px-4 text-left">ФИО / Контакты</th>
                 <th className="py-3 px-4 text-left">Адрес кошелька / Смарт-контракт</th>
-                <th className="py-3 px-4 text-center">Гражданство</th>
+                <th className="py-3 px-4 text-center">KYC / Верификация</th>
                 <th className="py-3 px-4 text-left">Метод хранения активов</th>
                 <th className="py-3 px-4 text-center">Суммарный объем долей</th>
                 <th className="py-3 px-4 text-center">Действия</th>
@@ -181,16 +182,25 @@ export default function UsersAndKyc({
                     </td>
 
                     <td className="py-3.5 px-4 font-mono text-[11px] text-gray-600">
-                      <span className="hover:text-[#A38D6D] flex items-center gap-1" title={inv.walletAddress}>
-                        {inv.walletAddress.slice(0, 10)}...{inv.walletAddress.slice(-8)}
-                      </span>
+                      {inv.walletAddress ? (
+                        <span className="hover:text-[#A38D6D] flex items-center gap-1" title={inv.walletAddress}>
+                          {inv.walletAddress.slice(0, 10)}...{inv.walletAddress.slice(-8)}
+                        </span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
 
-                    <td className="py-3.5 px-4 text-center text-gray-700">
-                      <span className="inline-flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
-                        <Globe size={10} className="text-[#A38D6D]" />
-                        КР
-                      </span>
+                    <td className="py-3.5 px-4 text-center">
+                      {inv.kycStatus === 'Approved' ? (
+                        <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                          <ShieldCheck size={11} /> KYC пройден
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                          <ShieldAlert size={11} /> Не пройден
+                        </span>
+                      )}
                     </td>
 
                     <td className="py-3.5 px-4 text-left">
