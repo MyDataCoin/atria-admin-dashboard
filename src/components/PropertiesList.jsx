@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import api from '../api';
+import { mapHolderFromInvestment } from '../api/mappers';
 import { 
   Building, 
   MapPin, 
@@ -46,10 +48,45 @@ export default function PropertiesList({
 }) {
   const [selectedProp, setSelectedProp] = useState(null);
   const [activeImgIndex, setActiveImgIndex] = useState(0);
+  // Real investor shares for the opened property (from backend). null = not loaded → demo fallback.
+  const [holders, setHolders] = useState(null);
+  const [holdersLoading, setHoldersLoading] = useState(false);
+  const [holdersError, setHoldersError] = useState('');
   const [activeSubTab, setActiveSubTab] = useState('info'); // info, docs, collateral, news, holders
   const [statusFilter, setStatusFilter] = useState('all');
 
   const selectedPropImages = selectedProp ? (selectedProp.images && selectedProp.images.length > 0 ? selectedProp.images : [selectedProp.image].filter(Boolean)) : [];
+
+  // When a property is opened, load its investor shares from the backend. On failure
+  // (endpoint missing / not authed) we keep holders=null and fall back to demo data.
+  useEffect(() => {
+    if (!selectedProp) {
+      setHolders(null);
+      return;
+    }
+    let cancelled = false;
+    setHoldersLoading(true);
+    setHolders(null);
+    setHoldersError('');
+    api.admin
+      .propertyInvestments(selectedProp.id)
+      .then((list) => {
+        if (cancelled) return;
+        setHolders(Array.isArray(list) ? list.map((d) => mapHolderFromInvestment(d, selectedProp)) : []);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setHolders(null);
+          setHoldersError(e?.status === 401 ? 'Нужен вход (нет/просрочен токен)' : (e?.message || 'нет доступа'));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setHoldersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProp]);
   
   // Create / Edit modal state
   const [showFormModal, setShowFormModal] = useState(false);
@@ -445,6 +482,23 @@ export default function PropertiesList({
                   )}
                 </div>
 
+                {/* Sold progress: how much of the total token supply is already bought */}
+                {prop.totalTokens != null && prop.totalTokens > 0 && (() => {
+                  const sold = Math.max(0, Math.min(100,
+                    ((prop.totalTokens - (prop.availableTokens ?? prop.totalTokens)) / prop.totalTokens) * 100));
+                  return (
+                    <div className="mt-4">
+                      <div className="flex justify-between items-center text-[9px] font-mono mb-1">
+                        <span className="uppercase tracking-wider text-gray-400 font-semibold">Продано долей</span>
+                        <span className="font-bold text-gray-700">{sold.toFixed(2)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
+                        <div className="h-full bg-[#A38D6D] transition-all duration-500" style={{ width: `${sold}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Admin metadata */}
                 <div className="mt-4 pt-3 border-t border-dashed border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
                   <span className="flex items-center gap-1">
@@ -799,33 +853,86 @@ export default function PropertiesList({
                   </div>
                 )}
 
-                {/* TAB 5: SHAREHOLDERS LIST */}
+                {/* TAB 5: SHAREHOLDERS LIST (real investments from backend, demo fallback) */}
                 {activeSubTab === 'holders' && (
-                  <div className="space-y-6">
-                    <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold font-mono">Распределение долей инвесторов</h4>
-                    <div className="space-y-3 font-mono">
-                      {investors.filter(inv => inv.holdings.some(h => h.propertyId === selectedProp.id)).map(inv => {
-                        const holding = inv.holdings.find(h => h.propertyId === selectedProp.id);
-                        const weight = selectedProp.currentValuation > 0 
-                          ? ((holding.tokensOwned * selectedProp.tokenPrice) / selectedProp.currentValuation) * 100 
-                          : 0;
-                        return (
-                          <div key={inv.id} className="flex justify-between items-center p-3 border border-gray-50 bg-[#FBFBFA] rounded text-xs">
-                            <div className="text-left">
-                              <span className="font-bold text-gray-900 block font-serif">{inv.name}</span>
-                              <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{inv.walletAddress}</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="font-bold text-[#A38D6D] block">{holding.tokensOwned.toLocaleString()} ATR-S</span>
-                              <span className="text-[10px] text-gray-500 block">Доля: {weight.toFixed(2)}%</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {investors.filter(inv => inv.holdings.some(h => h.propertyId === selectedProp.id)).length === 0 && (
-                        <p className="text-xs text-gray-400 italic py-4">Инвесторы еще не приобрели доли в этом объекте.</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold font-mono">Распределение долей инвесторов</h4>
+                      {holdersLoading && (
+                        <span className="text-[9px] font-mono text-gray-400 flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#A38D6D] animate-pulse" /> загрузка…
+                        </span>
                       )}
                     </div>
+
+                    {!holdersLoading && holders !== null && (
+                      <div className="text-[10px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-2.5 py-1.5">
+                        ✓ Данные с бэкенда{holders.length === 0 ? ' — по этому объекту ещё нет активных инвестиций' : `: инвесторов ${holders.length}`}
+                      </div>
+                    )}
+                    {!holdersLoading && holders === null && holdersError && (
+                      <div className="text-[10px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
+                        ⚠ {holdersError} — показаны демо-данные
+                      </div>
+                    )}
+
+                    {holders !== null ? (
+                      // ----- Real data from GET /properties/{id}/investments -----
+                      <div className="space-y-3 font-mono">
+                        {holders.map((h) => {
+                          const weight =
+                            h.sharePercent != null
+                              ? h.sharePercent
+                              : h.tokens != null && selectedProp.totalTokens
+                                ? (h.tokens / selectedProp.totalTokens) * 100
+                                : null;
+                          return (
+                            <div key={h.id} className="flex justify-between items-center p-3 border border-gray-50 bg-[#FBFBFA] rounded text-xs">
+                              <div className="text-left min-w-0">
+                                <span className="font-bold text-gray-900 block font-serif truncate">{h.name}</span>
+                                <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{h.walletAddress || '—'}</span>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <span className="font-bold text-[#A38D6D] block">
+                                  {h.tokens != null ? `${h.tokens.toLocaleString()} токенов` : formatMoney(h.amount, h.currency)}
+                                </span>
+                                <span className="text-[10px] text-gray-500 block">
+                                  {weight != null ? `Доля: ${weight.toFixed(2)}%` : h.status || ''}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {holders.length === 0 && (
+                          <p className="text-xs text-gray-400 italic py-4">Инвесторы еще не приобрели доли в этом объекте.</p>
+                        )}
+                      </div>
+                    ) : (
+                      // ----- Demo fallback (endpoint unavailable) -----
+                      <div className="space-y-3 font-mono">
+                        {investors.filter(inv => inv.holdings.some(h => h.propertyId === selectedProp.id)).map(inv => {
+                          const holding = inv.holdings.find(h => h.propertyId === selectedProp.id);
+                          const weight = selectedProp.currentValuation > 0
+                            ? ((holding.tokensOwned * selectedProp.tokenPrice) / selectedProp.currentValuation) * 100
+                            : 0;
+                          return (
+                            <div key={inv.id} className="flex justify-between items-center p-3 border border-gray-50 bg-[#FBFBFA] rounded text-xs">
+                              <div className="text-left">
+                                <span className="font-bold text-gray-900 block font-serif">{inv.name}</span>
+                                <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{inv.walletAddress}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-[#A38D6D] block">{holding.tokensOwned.toLocaleString()} ATR-S</span>
+                                <span className="text-[10px] text-gray-500 block">Доля: {weight.toFixed(2)}%</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {investors.filter(inv => inv.holdings.some(h => h.propertyId === selectedProp.id)).length === 0 && (
+                          <p className="text-xs text-gray-400 italic py-4">Инвесторы еще не приобрели доли в этом объекте.</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

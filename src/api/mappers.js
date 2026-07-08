@@ -80,6 +80,29 @@ export function mapInvestorFromApi(dto) {
 }
 
 /**
+ * Investment row for a property (proposed backend DTO) -> holder row for the object card.
+ * Tokens are taken as-is, or derived from amount / tokenPrice when the backend omits them.
+ */
+export function mapHolderFromInvestment(dto, property = {}) {
+  const tokenPrice = property.tokenPrice;
+  const tokens =
+    dto.tokens ??
+    (dto.amount != null && tokenPrice ? Math.round(dto.amount / tokenPrice) : null);
+  return {
+    id: dto.id || dto.userId || dto.investmentId,
+    name: dto.fullName || dto.investorName || dto.name || dto.phoneNumber || dto.phone || 'Инвестор',
+    walletAddress: dto.walletAddress || '',
+    tokens,
+    amount: dto.amount ?? null,
+    currency: dto.currency || property.currency || 'USD',
+    // Backend may send the share directly; otherwise the UI derives it from tokens.
+    sharePercent: dto.sharePercent ?? dto.share ?? null,
+    status: dto.status || null,
+    _source: 'api',
+  };
+}
+
+/**
  * Dashboard create-form data -> CreatePropertyRequest (swagger).
  * Only the fields the backend accepts are sent.
  */

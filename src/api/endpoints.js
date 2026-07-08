@@ -109,6 +109,9 @@ export const audit = {
 // (id, phoneNumber, fullName [decrypted], walletAddress, status, createdAtUtc).
 export const admin = {
   listInvestors: () => request('/users'),
+  // Admin/Compliance. Investors holding shares in a property (investments ⋈ users/kyc).
+  // NOTE: proposed endpoint — not in the API yet; wired with a demo fallback.
+  propertyInvestments: (propertyId) => request(`/properties/${propertyId}/investments`),
 };
 
 export default { auth, properties, investments, kyc, consent, documents, notifications, audit, admin };
