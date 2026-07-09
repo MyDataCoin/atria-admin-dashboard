@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { 
-  MessageSquare, 
-  Search, 
-  Send, 
-  User, 
-  Mail, 
-  Plus, 
+import {
+  MessageSquare,
+  Search,
+  Send,
+  User,
+  Plus,
   HelpCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import api from '../api';
+import { mapTicketFromApi } from '../api/mappers';
 
 const PRESETS = [
   {
@@ -29,11 +30,12 @@ const PRESETS = [
   }
 ];
 
-export default function SupportTickets({ 
-  tickets, 
-  setTickets, 
+export default function SupportTickets({
+  tickets,
+  setTickets,
   investors,
-  onAddLog 
+  onRefreshTickets,
+  onAddLog
 }) {
   const [selectedTicketId, setSelectedTicketId] = useState(null);
   const [readTicketIds, setReadTicketIds] = useState(() => new Set());
@@ -53,6 +55,32 @@ export default function SupportTickets({
   const [replyText, setReplyText] = useState('');
 
   const selectedTicket = tickets.find(t => t.id === selectedTicketId);
+
+  // "Read" is keyed by ticket id + last-activity time, so that a *new* message (which bumps
+  // updatedAt) re-lights the ticket as unread even after it was opened once.
+  const readKey = (t) => `${t.id}::${t.updatedAt}`;
+  const markRead = (t) => setReadTicketIds((prev) => new Set(prev).add(readKey(t)));
+
+  // Replace a ticket in state by id — used to reconcile local state after an API write.
+  const applyTicket = (updated) =>
+    setTickets((prev) => prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)));
+
+  // Select a ticket. The list route returns tickets without their message thread, so for
+  // API-backed tickets we fetch the full ticket by id and merge the thread in. Opening a
+  // ticket marks it read (before and after the fetch, since the fetch can bump updatedAt).
+  const handleSelectTicket = async (t) => {
+    setSelectedTicketId(t.id);
+    markRead(t);
+    if (t._source === 'api') {
+      try {
+        const full = mapTicketFromApi(await api.support.getTicket(t.id));
+        applyTicket(full);
+        markRead(full);
+      } catch {
+        /* keep the list-level ticket if the thread can't be loaded */
+      }
+    }
+  };
 
   // Stats
   const totalCount = tickets.length;
@@ -74,34 +102,46 @@ export default function SupportTickets({
     return matchesSearch && matchesStatus && matchesCategory;
   });
 
-  // Handle reply submission
-  const handleSendReply = (e) => {
+  // Handle reply submission. For API-backed tickets the message is persisted via
+  // POST /support/tickets/{id}/messages (author derived from role, server-side); we
+  // optimistically append it, then reconcile with the freshly-fetched thread.
+  const handleSendReply = async (e) => {
     e.preventDefault();
-    if (!replyText.trim() || !selectedTicket) return;
+    const text = replyText.trim();
+    if (!text || !selectedTicket) return;
 
-    const newMsg = {
+    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const optimistic = {
       id: `msg-${selectedTicket.id}-${Date.now()}`,
       sender: 'support',
       senderName: 'Поддержка ATRIA RWA',
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      text: replyText.trim()
+      timestamp,
+      text
     };
 
-    const updatedTickets = tickets.map(t => {
-      if (t.id === selectedTicket.id) {
-        return {
-          ...t,
-          status: 'Answered',
-          updatedAt: newMsg.timestamp,
-          messages: [...t.messages, newMsg]
-        };
-      }
-      return t;
+    applyTicket({
+      id: selectedTicket.id,
+      status: 'Answered',
+      updatedAt: timestamp,
+      messages: [...selectedTicket.messages, optimistic]
     });
-
-    setTickets(updatedTickets);
     setReplyText('');
-    
+
+    if (selectedTicket._source === 'api') {
+      try {
+        await api.support.addMessage(selectedTicket.id, text);
+        // Pull the authoritative thread back (ids, server timestamps, status).
+        applyTicket(mapTicketFromApi(await api.support.getTicket(selectedTicket.id)));
+      } catch (err) {
+        onAddLog(
+          'Support Reply Failed',
+          `Не удалось отправить ответ по обращению #${selectedTicket.id}: ${err?.message || 'ошибка API'}.`,
+          'ERROR'
+        );
+        return;
+      }
+    }
+
     onAddLog(
       'Support Reply Sent',
       `Отправлен ответ инвестору "${selectedTicket.investorName}" по обращению #${selectedTicket.id} ("${selectedTicket.subject}").`
@@ -113,24 +153,37 @@ export default function SupportTickets({
     setReplyText(presetText);
   };
 
-  // Change ticket status directly
-  const handleChangeStatus = (ticketId, newStatus) => {
-    const updatedTickets = tickets.map(t => {
-      if (t.id === ticketId) {
-        return {
-          ...t,
-          status: newStatus,
-          updatedAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
-        };
-      }
-      return t;
-    });
-    setTickets(updatedTickets);
-
+  // Change ticket status directly. The backend only exposes close/reopen transitions:
+  // Resolved -> POST /close, Open -> POST /reopen (Admin only). "Answered" is a side-effect
+  // of replying and has no direct endpoint, so it stays a local-only status change.
+  const handleChangeStatus = async (ticketId, newStatus) => {
     const target = tickets.find(t => t.id === ticketId);
+    if (!target) return;
+
+    applyTicket({
+      id: ticketId,
+      status: newStatus,
+      updatedAt: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    });
+
+    if (target._source === 'api' && newStatus !== 'Answered') {
+      try {
+        if (newStatus === 'Resolved') await api.support.close(ticketId);
+        else if (newStatus === 'Open') await api.support.reopen(ticketId);
+        applyTicket(mapTicketFromApi(await api.support.getTicket(ticketId)));
+      } catch (err) {
+        onAddLog(
+          'Ticket Status Change Failed',
+          `Не удалось изменить статус тикета #${ticketId}: ${err?.message || 'ошибка API'}.`,
+          'ERROR'
+        );
+        return;
+      }
+    }
+
     onAddLog(
       'Ticket Status Changed',
-      `Статус тикета #${ticketId} ("${target?.subject}") изменен на "${
+      `Статус тикета #${ticketId} ("${target.subject}") изменен на "${
         newStatus === 'Open' ? 'Открыт' : newStatus === 'Answered' ? 'Отвечен' : 'Решен'
       }".`
     );
@@ -157,7 +210,9 @@ export default function SupportTickets({
     );
   };
 
-  // Create new ticket action
+  // Create new ticket action. NOTE: the backend's POST /support/tickets opens a ticket for
+  // the *authenticated investor* only — there's no "create on behalf of" for admins — so this
+  // manual registration (phone/email intake) stays local-only until the backend exposes it.
   const handleCreateTicketSubmit = (e) => {
     e.preventDefault();
     if (!newSubject || !newInvestorId || !newMessageText) return;
@@ -317,11 +372,10 @@ export default function SupportTickets({
               filteredTickets.map((t) => {
                 const isSelected = t.id === selectedTicketId;
                 const lastMsg = t.messages[t.messages.length - 1];
-                // "Непрочитанное" = обращение открыто и последнее сообщение от инвестора
-                const isUnread =
-                  t.status === 'Open' &&
-                  lastMsg?.sender === 'investor' &&
-                  !readTicketIds.has(t.id);
+                // "Непрочитанное" = тикет ждёт ответа поддержки (Open) и ещё не открыт
+                // при текущей последней активности. Не зависит от загрузки треда, поэтому
+                // новые обращения подсвечиваются сразу в списке.
+                const isUnread = t.status === 'Open' && !readTicketIds.has(readKey(t));
 
                 let statusBadge = '';
                 if (t.status === 'Open') statusBadge = 'bg-rose-50 text-rose-800 border-rose-200';
@@ -335,12 +389,7 @@ export default function SupportTickets({
                 return (
                   <div
                     key={t.id}
-                    onClick={() => {
-                      setSelectedTicketId(t.id);
-                      if (isUnread) {
-                        setReadTicketIds((prev) => new Set(prev).add(t.id));
-                      }
-                    }}
+                    onClick={() => handleSelectTicket(t)}
                     className={`p-4 text-left cursor-pointer transition-all relative ${
                       isSelected
                         ? 'bg-[#FAF8F3]/90 border-l-4 border-l-[#A38D6D]'
@@ -350,14 +399,13 @@ export default function SupportTickets({
                     }`}
                   >
                     <div className="flex justify-between items-start gap-2">
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex items-center gap-1.5 min-h-[16px]">
                         {isUnread && (
                           <span className="relative flex h-2 w-2 shrink-0" title="Непрочитанное сообщение">
                             <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75 animate-ping" />
                             <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
                           </span>
                         )}
-                        <span className="text-[9px] font-mono text-gray-400 font-semibold">{t.id}</span>
                       </span>
                       {isUnread ? (
                         <span className="text-[8px] uppercase font-mono tracking-wider px-1.5 py-0.5 rounded bg-rose-500 text-white font-bold shadow-sm">
@@ -412,9 +460,6 @@ export default function SupportTickets({
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-[#A38D6D] bg-[#FAF8F3] px-2 py-0.5 border border-[#A38D6D]/30 rounded">
-                        {selectedTicket.id}
-                      </span>
                       <span className="text-[10px] text-gray-400 font-mono">
                         Создан: {selectedTicket.createdAt}
                       </span>
@@ -426,10 +471,6 @@ export default function SupportTickets({
                       <span className="flex items-center gap-1">
                         <User size={12} className="text-gray-400" />
                         <strong>{selectedTicket.investorName}</strong>
-                      </span>
-                      <span className="flex items-center gap-1 font-mono text-[11px]">
-                        <Mail size={12} className="text-gray-400" />
-                        {selectedTicket.investorEmail}
                       </span>
                     </div>
                   </div>

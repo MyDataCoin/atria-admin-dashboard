@@ -116,6 +116,29 @@ export const notifications = {
   markRead: (id) => request(`/notifications/${id}/read`, { method: 'POST' }),
 };
 
+// ---- Support tickets ------------------------------------------------------
+// GET /support/tickets is role-scoped: an Investor sees only their own tickets,
+// an Admin sees all. On the list route each ticket omits `messages` (null) and,
+// for Admin, carries an `investor` { id, fullName }. Fetch a ticket by id to get
+// the full message thread. Statuses are lowercase: open | pending | closed.
+
+export const support = {
+  // Admin: all tickets; Investor: own. messages is null here — fetch by id for the thread.
+  listTickets: () => request('/support/tickets'),
+  // Full ticket incl. message thread (owner or Admin).
+  getTicket: (id) => request(`/support/tickets/${id}`),
+  // Opens a new ticket for the current investor. body: { subject, category, body }
+  createTicket: (body) => request('/support/tickets', { method: 'POST', body }),
+  // Appends a message to a ticket (owner or Admin). The author (investor/support)
+  // is derived from the caller's role server-side. body: { body }
+  addMessage: (id, text) =>
+    request(`/support/tickets/${id}/messages`, { method: 'POST', body: { body: text } }),
+  // Closes a ticket (owner or Admin).
+  close: (id) => request(`/support/tickets/${id}/close`, { method: 'POST' }),
+  // Reopens a closed ticket (Admin only).
+  reopen: (id) => request(`/support/tickets/${id}/reopen`, { method: 'POST' }),
+};
+
 // ---- Admin audit ----------------------------------------------------------
 
 export const audit = {
@@ -134,4 +157,4 @@ export const admin = {
   propertyInvestments: (propertyId) => request(`/properties/${propertyId}/investments`),
 };
 
-export default { auth, properties, investments, kyc, consent, documents, notifications, audit, admin };
+export default { auth, properties, investments, kyc, consent, documents, notifications, support, audit, admin };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api, { decodeJwt, tokenStore } from './api';
-import { mapPropertyFromApi, mapInvestorFromApi, mapPlacementFromProperty } from './api/mappers';
+import { mapPropertyFromApi, mapInvestorFromApi, mapPlacementFromProperty, mapTicketFromApi } from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Overview from './components/Overview';
@@ -72,6 +72,8 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
   const [integrations, setIntegrations] = useState(INITIAL_INTEGRATIONS);
   const [tickets, setTickets] = useState(INITIAL_TICKETS);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsError, setTicketsError] = useState('');
 
   // Load the real property catalogue from the backend (public GET, no auth).
   // On failure we keep the demo data so the dashboard never renders empty.
@@ -118,6 +120,28 @@ export default function App() {
     loadInvestors();
   }, [loadInvestors]);
 
+  // Load the support-ticket desk (Admin sees all tickets). Needs an Admin JWT — on any
+  // failure we keep the demo tickets and surface the reason in a banner. The list route
+  // omits message threads; SupportTickets fetches each ticket's thread on demand.
+  const loadTickets = React.useCallback(() => {
+    setTicketsLoading(true);
+    return api.support
+      .listTickets()
+      .then((list) => {
+        const mapped = Array.isArray(list) ? list.map(mapTicketFromApi) : [];
+        setTickets(mapped);
+        setTicketsError('');
+      })
+      .catch((err) => {
+        setTicketsError(err?.message || 'Тикет-деск недоступен');
+      })
+      .finally(() => setTicketsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (tokenStore.isAuthenticated) loadTickets();
+  }, [loadTickets]);
+
   // Helper function to append a live log to the immutable audit logs
   const handleAddAuditLog = (action, details, level = 'SUCCESS') => {
     const newLog = {
@@ -145,6 +169,7 @@ export default function App() {
       setLoginPass('');
       // Load protected data now that we're authenticated.
       loadInvestors();
+      loadTickets();
       const newLog = {
         id: `audit-login-${Date.now()}`,
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
@@ -306,12 +331,31 @@ export default function App() {
         );
       case 'support':
         return (
-          <SupportTickets 
-            tickets={tickets}
-            setTickets={setTickets}
-            investors={investors}
-            onAddLog={handleAddAuditLog}
-          />
+          <div className="space-y-4">
+            {ticketsLoading && (
+              <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500 bg-gray-50 border border-gray-100 rounded px-3 py-2">
+                <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+                Загрузка тикетов из API…
+              </div>
+            )}
+            {!ticketsLoading && ticketsError && (
+              <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                ⚠ Тикет-деск недоступен — показаны демо-данные. {ticketsError}
+              </div>
+            )}
+            {!ticketsLoading && !ticketsError && (
+              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
+                ✓ Тикеты загружены с бэкенда: {tickets.length}
+              </div>
+            )}
+            <SupportTickets
+              tickets={tickets}
+              setTickets={setTickets}
+              investors={investors}
+              onRefreshTickets={loadTickets}
+              onAddLog={handleAddAuditLog}
+            />
+          </div>
         );
       case 'audit_log':
         return (

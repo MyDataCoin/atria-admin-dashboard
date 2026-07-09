@@ -137,6 +137,67 @@ export function mapHolderFromInvestment(dto, property = {}) {
   };
 }
 
+// Backend ticket status (open|pending|closed) -> dashboard status (Open|Answered|Resolved).
+// `open` = awaiting first support reply, `pending` = support answered / awaiting investor,
+// `closed` = resolved. Priority has no backend counterpart — defaulted to Medium.
+function mapTicketStatus(status) {
+  switch ((status || '').toLowerCase()) {
+    case 'closed':
+      return 'Resolved';
+    case 'pending':
+      return 'Answered';
+    case 'open':
+    default:
+      return 'Open';
+  }
+}
+
+// Backend date-time (ISO) -> the "YYYY-MM-DD HH:MM:SS" the UI renders verbatim.
+function fmtTs(iso) {
+  return iso ? String(iso).replace('T', ' ').substring(0, 19) : '';
+}
+
+/**
+ * TicketMessageDto (swagger) -> dashboard message. `author` is 'investor' | 'support'.
+ */
+export function mapTicketMessageFromApi(m, investorName = '') {
+  const sender = m.author === 'support' ? 'support' : 'investor';
+  return {
+    id: m.id,
+    sender,
+    senderName:
+      m.authorName || (sender === 'support' ? 'Поддержка ATRIA RWA' : investorName || 'Инвестор'),
+    timestamp: fmtTs(m.createdAtUtc),
+    text: m.body || '',
+  };
+}
+
+/**
+ * TicketDto (swagger) -> dashboard ticket. On the list route `messages` and `investor`
+ * detail may be absent; those are filled in when a single ticket is fetched by id.
+ * The backend is phone-only, so no email — the investor's full name stands in.
+ */
+export function mapTicketFromApi(t) {
+  const investorName = t.investor?.fullName || 'Инвестор';
+  const messages = Array.isArray(t.messages)
+    ? t.messages.map((m) => mapTicketMessageFromApi(m, investorName))
+    : [];
+  return {
+    id: t.id,
+    investorId: t.investor?.id || null,
+    investorName,
+    investorEmail: '—', // phone-only backend; no email on tickets
+    subject: t.subject || '',
+    category: t.category || '',
+    priority: 'Medium', // not modelled on the backend; UI-only
+    status: mapTicketStatus(t.status),
+    createdAt: fmtTs(t.createdAtUtc),
+    updatedAt: fmtTs(t.updatedAtUtc || t.createdAtUtc),
+    messages,
+    _source: 'api',
+  };
+}
+
 /**
  * Dashboard create-form data -> CreatePropertyRequest (swagger).
  * Only the fields the backend accepts are sent.
