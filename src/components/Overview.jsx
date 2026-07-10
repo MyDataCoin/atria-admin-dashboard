@@ -456,12 +456,6 @@ export default function Overview({
               <FileCheck size={12} className="text-[#A38D6D]" />
               Все данные защищены аудитом Ernst & Young
             </span>
-            <button 
-              onClick={() => onNavigate('analytics')}
-              className="text-[#A38D6D] hover:underline font-bold uppercase tracking-wider"
-            >
-              Перейти к аналитике →
-            </button>
           </div>
         </div>
 

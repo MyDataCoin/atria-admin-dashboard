@@ -8,7 +8,6 @@ import PropertiesList from './components/PropertiesList';
 import OfferingsManager from './components/OfferingsManager';
 import PayoutsAndInvestors from './components/PayoutsAndInvestors';
 import UsersAndKyc from './components/UsersAndKyc';
-import ExchangeIntegrations from './components/ExchangeIntegrations';
 import ActivitiesTimeline from './components/ActivitiesTimeline';
 import SupportTickets from './components/SupportTickets';
 
@@ -23,7 +22,6 @@ import {
   INITIAL_DOCUMENTS,
   INITIAL_NEWS_PUBLICATIONS,
   INITIAL_AUDIT_LOGS,
-  INITIAL_INTEGRATIONS,
   INITIAL_TICKETS
 } from './data';
 
@@ -70,7 +68,6 @@ export default function App() {
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
   const [publications, setPublications] = useState(INITIAL_NEWS_PUBLICATIONS);
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
-  const [integrations, setIntegrations] = useState(INITIAL_INTEGRATIONS);
   const [tickets, setTickets] = useState(INITIAL_TICKETS);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState('');
@@ -315,14 +312,6 @@ export default function App() {
               onAddLog={handleAddAuditLog}
             />
           </div>
-        );
-      case 'analytics':
-        return (
-          <ExchangeIntegrations 
-            integrations={integrations}
-            setIntegrations={setIntegrations}
-            onAddLog={handleAddAuditLog}
-          />
         );
       case 'support':
         return (
