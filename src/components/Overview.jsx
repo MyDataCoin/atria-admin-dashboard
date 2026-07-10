@@ -513,14 +513,6 @@ export default function Overview({
             </div>
           </div>
 
-          <div className="pt-4 border-t border-gray-100 text-center">
-            <button
-              onClick={() => onNavigate('offerings')}
-              className="w-full py-2 border border-dashed border-gray-300 hover:border-[#A38D6D] hover:text-[#A38D6D] text-gray-500 rounded text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer"
-            >
-              Управлять офертами и возвратами средств →
-            </button>
-          </div>
         </div>
 
       </div>

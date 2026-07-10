@@ -1,9 +1,8 @@
 import React from 'react';
 import { 
   LayoutDashboard, 
-  Building, 
-  Coins, 
-  Users, 
+  Building,
+  Users,
   Wallet,
   Activity,
   LogOut,
@@ -24,7 +23,6 @@ export default function Sidebar({
   const menuItems = [
     { id: 'dashboard', label: 'Сводка & Статистика', icon: LayoutDashboard },
     { id: 'properties', label: 'Объекты & Документы', icon: Building },
-    { id: 'offerings', label: 'Инвест-размещения', icon: Coins },
     { id: 'investors', label: 'Выплаты & Инвесторы', icon: Wallet },
     { id: 'users', label: 'Пользователи & KYC/AML', icon: Users },
     { id: 'support', label: 'Поддержка & Тикеты', icon: HelpCircle },

@@ -23,7 +23,9 @@ import {
   RefreshCw,
   Rocket,
   Megaphone,
-  Undo2
+  Undo2,
+  Play,
+  Pause
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -107,6 +109,49 @@ export default function PropertiesList({
   const [holdersError, setHoldersError] = useState('');
   const [activeSubTab, setActiveSubTab] = useState('info'); // info, docs, collateral, news, holders
   const [statusFilter, setStatusFilter] = useState('all');
+  // Pause/resume an active offering. Persisted on the backend (POST /pause | /resume) so the
+  // public site can block purchases while paused; optimistic UI with revert on failure.
+  // Demo (non-API) objects toggle locally only.
+  const [pausedIds, setPausedIds] = useState(() => new Set());
+  const isPaused = (prop) => pausedIds.has(prop.id) || !!prop.paused;
+  const handleTogglePause = async (prop) => {
+    const willPause = !isPaused(prop);
+    // optimistic
+    setPausedIds((prev) => {
+      const next = new Set(prev);
+      if (willPause) next.add(prop.id); else next.delete(prop.id);
+      return next;
+    });
+
+    if (prop._source === 'api') {
+      try {
+        if (willPause) await api.properties.pause(prop.id);
+        else await api.properties.resume(prop.id);
+        onAddLog(
+          willPause ? 'Offering Paused' : 'Offering Resumed',
+          `Продажи по объекту "${prop.name}" ${willPause ? 'приостановлены — покупка на сайте заблокирована' : 'возобновлены'}.`
+        );
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        // revert optimistic toggle
+        setPausedIds((prev) => {
+          const next = new Set(prev);
+          if (willPause) next.delete(prop.id); else next.add(prop.id);
+          return next;
+        });
+        onAddLog(
+          'Offering Pause Failed',
+          `Не удалось ${willPause ? 'приостановить' : 'возобновить'} "${prop.name}": ${err?.message || 'нужны эндпоинты /pause /resume на бэке'}.`,
+          'ERROR'
+        );
+      }
+      return;
+    }
+    onAddLog(
+      willPause ? 'Offering Paused' : 'Offering Resumed',
+      `Продажи по объекту "${prop.name}" ${willPause ? 'приостановлены' : 'возобновлены'} (локально).`
+    );
+  };
 
   const selectedPropImages = selectedProp ? (selectedProp.images && selectedProp.images.length > 0 ? selectedProp.images : [selectedProp.image].filter(Boolean)) : [];
 
@@ -616,7 +661,7 @@ export default function PropertiesList({
           { id: 'coming_soon', label: 'Скоро в продаже' },
           { id: 'active', label: 'В портфеле (Активные)' },
           { id: 'draft', label: 'Черновики' },
-          { id: 'archived', label: 'Архивные' }
+          { id: 'archived', label: 'Распроданные' }
         ].map((tab) => {
           const count = tab.id === 'all' 
             ? properties.length 
@@ -672,7 +717,7 @@ export default function PropertiesList({
                 }`}>
                   {prop.status === 'active' ? 'В портфеле' :
                    prop.status === 'coming_soon' ? 'Скоро в продаже' :
-                   prop.status === 'draft' ? 'Черновик' : 'Архив'}
+                   prop.status === 'draft' ? 'Черновик' : 'Распродан'}
                 </span>
 
                 {prop.type && (
@@ -793,25 +838,6 @@ export default function PropertiesList({
                           <Undo2 size={13} />
                         </button>
                       </>
-                    )}
-                    {prop.status === 'active' && (
-                      <button
-                        onClick={(e) => handleArchiveProperty(prop.id, e)}
-                        className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                        title="Завершить размещение — на сайте станет «распродан»"
-                      >
-                        <Archive size={13} />
-                      </button>
-                    )}
-                    {prop.status === 'archived' && prop._source !== 'api' && (
-                      <button
-                        onClick={(e) => handleUnarchiveProperty(prop.id, e)}
-                        className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition-colors flex items-center gap-1 text-[10px] font-mono font-bold"
-                        title="Извлечь из архива"
-                      >
-                        <RefreshCw size={11} className="animate-none text-emerald-600" />
-                        <span>Извлечь</span>
-                      </button>
                     )}
                   </div>
                 </div>
@@ -934,6 +960,49 @@ export default function PropertiesList({
                             <span className="text-sm font-bold font-mono text-gray-900">{selectedProp.currency || '—'}</span>
                           </div>
                         </div>
+
+                        {/* Sold progress + offering controls (pause / resume) */}
+                        {selectedProp.totalTokens != null && selectedProp.totalTokens > 0 && (() => {
+                          const sold = Math.max(0, Math.min(100,
+                            ((selectedProp.totalTokens - (selectedProp.availableTokens ?? selectedProp.totalTokens)) / selectedProp.totalTokens) * 100));
+                          const paused = isPaused(selectedProp);
+                          return (
+                            <div className="mt-4">
+                              <div className="flex justify-between items-center text-[10px] font-mono mb-1">
+                                <span className="uppercase tracking-wider text-gray-400 font-semibold">Продано долей</span>
+                                <span className="font-bold text-gray-700">{sold.toFixed(2)}%</span>
+                              </div>
+                              <div className="w-full bg-gray-100 h-2 rounded overflow-hidden">
+                                <div className="h-full bg-[#A38D6D] transition-all duration-500" style={{ width: `${sold}%` }} />
+                              </div>
+
+                              {selectedProp.status === 'active' && (
+                                <div className="mt-3">
+                                  {paused ? (
+                                    <button
+                                      onClick={() => handleTogglePause(selectedProp)}
+                                      className="w-full flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer"
+                                    >
+                                      <Play size={12} />
+                                      <span>Начать</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleTogglePause(selectedProp)}
+                                      className="w-full flex items-center justify-center gap-1.5 bg-white hover:bg-amber-50 text-amber-700 border border-amber-200 py-2 rounded text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer"
+                                    >
+                                      <Pause size={12} />
+                                      <span>Приостановить</span>
+                                    </button>
+                                  )}
+                                  {paused && (
+                                    <p className="text-[9px] font-mono text-amber-600 mt-1.5 text-center">Продажи приостановлены</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
 
@@ -1145,11 +1214,6 @@ export default function PropertiesList({
                       )}
                     </div>
 
-                    {!holdersLoading && holders !== null && (
-                      <div className="text-[10px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-2.5 py-1.5">
-                        ✓ Данные с бэкенда{holders.length === 0 ? ' — по этому объекту ещё нет активных инвестиций' : `: инвесторов ${holders.length}`}
-                      </div>
-                    )}
                     {!holdersLoading && holders === null && holdersError && (
                       <div className="text-[10px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
                         ⚠ {holdersError} — показаны демо-данные
@@ -1170,7 +1234,9 @@ export default function PropertiesList({
                             <div key={h.id} className="flex justify-between items-center p-3 border border-gray-50 bg-[#FBFBFA] rounded text-xs">
                               <div className="text-left min-w-0">
                                 <span className="font-bold text-gray-900 block font-serif truncate">{h.name}</span>
-                                <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{h.walletAddress || '—'}</span>
+                                {h.walletAddress && (
+                                  <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{h.walletAddress}</span>
+                                )}
                               </div>
                               <div className="text-right shrink-0">
                                 <span className="font-bold text-[#A38D6D] block">

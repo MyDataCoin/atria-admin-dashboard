@@ -45,13 +45,22 @@ export function mapPropertyFromApi(p) {
     //   coming_soon  -> "скоро в продаже" (public site: "Скоро")
     //   open          -> "открыт к покупке" (open for purchase)
     //   completed     -> "распродан" (sold out / archived)
-    status: mapPropertyStatus(p.status, p.isActive),
+    // A fully sold-out open offering (availableTokens === 0) is shown as sold out even if
+    // the backend hasn't flipped it to completed yet (backend should ideally auto-complete).
+    status:
+      mapPropertyStatus(p.status, p.isActive) === 'active' && p.availableTokens === 0
+        ? 'archived'
+        : mapPropertyStatus(p.status, p.isActive),
 
     // Token economics (live on the property in this backend).
     currency: p.currency,
     tokenPrice: p.tokenPrice,
     availableTokens: p.availableTokens,
     totalTokens: p.totalTokens,
+
+    // Sales temporarily halted by admin — the public site must block "buy" while true.
+    // Backend flag name TBD; accept a few likely spellings.
+    paused: !!(p.salesPaused ?? p.isPaused ?? p.paused),
 
     // Object-info fields the backend doesn't expose yet.
     type: '',

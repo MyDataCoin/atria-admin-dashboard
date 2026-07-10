@@ -5,7 +5,6 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Overview from './components/Overview';
 import PropertiesList from './components/PropertiesList';
-import OfferingsManager from './components/OfferingsManager';
 import PayoutsAndInvestors from './components/PayoutsAndInvestors';
 import UsersAndKyc from './components/UsersAndKyc';
 import ActivitiesTimeline from './components/ActivitiesTimeline';
@@ -243,34 +242,6 @@ export default function App() {
               publications={publications}
               setPublications={setPublications}
               investors={investors}
-              currency={currency}
-              onAddLog={handleAddAuditLog}
-            />
-          </div>
-        );
-      case 'offerings':
-        return (
-          <div className="space-y-4">
-            {propertiesLoading && (
-              <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500 bg-gray-50 border border-gray-100 rounded px-3 py-2">
-                <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
-                Загрузка размещений из API…
-              </div>
-            )}
-            {!propertiesLoading && propertiesError && (
-              <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                ⚠ API недоступен — показаны демо-данные. {propertiesError}
-              </div>
-            )}
-            {!propertiesLoading && !propertiesError && (
-              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
-                ✓ Размещения построены из каталога объектов: {placements.length}
-              </div>
-            )}
-            <OfferingsManager
-              placements={placements}
-              setPlacements={setPlacements}
-              properties={properties}
               currency={currency}
               onAddLog={handleAddAuditLog}
             />

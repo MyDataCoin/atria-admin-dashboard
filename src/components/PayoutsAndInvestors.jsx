@@ -180,7 +180,7 @@ export default function PayoutsAndInvestors({
                 >
                   <option value="">-- Выбрать из реестра --</option>
                   {properties.filter(p => p.status === 'active').map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.city})</option>
+                    <option key={p.id} value={p.id}>{p.city ? `${p.name} (${p.city})` : p.name}</option>
                   ))}
                 </select>
               </div>

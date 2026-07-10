@@ -71,6 +71,12 @@ export const properties = {
   // Admin only. Closes an open offering: open -> completed, so the public site shows it
   // as "sold out" (распродан). 409 if the property isn't currently open.
   complete: (id) => request(`/properties/${id}/complete`, { method: 'POST' }),
+  // Admin only. Temporarily halts purchases on an open offering (sets salesPaused=true).
+  // The public site must block "buy" while paused. PROPOSED — backend must add
+  // POST /properties/{id}/pause and expose the flag on PropertyDto (see handoff notes).
+  pause: (id) => request(`/properties/${id}/pause`, { method: 'POST' }),
+  // Admin only. Resumes a paused offering (salesPaused=false). PROPOSED — see handoff notes.
+  resume: (id) => request(`/properties/${id}/resume`, { method: 'POST' }),
   // Admin only. Uploads one image (max 3/property). Returns { id, url }.
   uploadImage: (id, file, filename) => {
     const form = new FormData();
