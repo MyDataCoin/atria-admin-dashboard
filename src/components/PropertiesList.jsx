@@ -257,9 +257,12 @@ export default function PropertiesList({
   const [pubSummary, setPubSummary] = useState('');
   const [pubSuccess, setPubSuccess] = useState(false);
 
-  // Document upload simulation
+  // Document upload
   const [docTitle, setDocTitle] = useState('');
   const [docCategory, setDocCategory] = useState('legal');
+  const [docFile, setDocFile] = useState(null);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState('');
   const [docSuccess, setDocSuccess] = useState(false);
 
   // Documents attached directly inside the create/edit form modal
@@ -288,7 +291,8 @@ export default function PropertiesList({
       propertyName: formData.name,
       dateStr: new Date().toISOString().split('T')[0],
       fileSize: formatFileSize(file.size),
-      status: formDocCategory === 'collateral' ? 'Registered' : 'Audited'
+      status: formDocCategory === 'collateral' ? 'Registered' : 'Audited',
+      file, // keep the real File so it can be uploaded to the backend on create
     }));
 
     setFormDocs(prev => [...prev, ...newDocs]);
@@ -510,9 +514,19 @@ export default function PropertiesList({
           await api.properties.announce(newId);
         }
 
-        // Documents are kept locally (no backend docs-create wired here) under the new id.
-        if (formDocs.length) {
-          const synced = formDocs.map(d => ({ ...d, propertyId: newId, propertyName: formData.name }));
+        // Upload attached documents to the backend (POST /properties/{id}/documents).
+        // Any entry without a real File (e.g. preloaded demo docs) is kept locally.
+        const docsWithFiles = formDocs.filter((d) => d.file);
+        for (const d of docsWithFiles) {
+          try {
+            await api.properties.uploadDocument(newId, d.file, d.file.name || d.title);
+          } catch {
+            /* skip a failed document upload but keep creating the property */
+          }
+        }
+        const localOnlyDocs = formDocs.filter((d) => !d.file);
+        if (localOnlyDocs.length) {
+          const synced = localOnlyDocs.map(d => ({ ...d, propertyId: newId, propertyName: formData.name }));
           setDocuments([...synced, ...documents.filter(d => d.propertyId !== formData.id)]);
         }
 
@@ -543,41 +557,52 @@ export default function PropertiesList({
       return;
     }
 
-    // EDIT. Documents stay local (no backend docs-edit here); most property fields also
-    // have no backend update endpoint. But the STATUS is real backend state, so a status
-    // change must be persisted via the lifecycle endpoints — otherwise the next refresh
-    // overwrites the local label (this was the "не сохраняется" bug).
-    const syncedDocs = formDocs.map(d => ({ ...d, propertyId: formData.id, propertyName: formData.name }));
-    setDocuments([...syncedDocs, ...documents.filter(d => d.propertyId !== formData.id)]);
-
+    // EDIT.
     const original = properties.find(p => p.id === formData.id);
+    const isApi = original?._source === 'api';
+    // Newly attached document files (have a real File); preloaded docs don't and stay local.
+    const newDocFiles = formDocs.filter(d => d.file);
+    const localDocs = formDocs
+      .filter(d => !d.file)
+      .map(d => ({ ...d, propertyId: formData.id, propertyName: formData.name }));
+    setDocuments([...localDocs, ...documents.filter(d => d.propertyId !== formData.id)]);
+
     const statusChanged = original && formData.status !== original.status;
 
-    if (original?._source === 'api' && statusChanged) {
+    if (isApi) {
       const from = original.status;
       const to = formData.status;
       setSaving(true);
       setSaveError('');
       try {
-        if (to === 'coming_soon' && from === 'draft') {
-          await api.properties.announce(formData.id);
-        } else if (to === 'draft' && from === 'coming_soon') {
-          await api.properties.unannounce(formData.id);
-        } else if (to === 'active' && (from === 'draft' || from === 'coming_soon')) {
-          await api.properties.publish(formData.id);
-        } else if (to === 'archived' && from === 'active') {
-          await api.properties.complete(formData.id);
-        } else {
-          setSaveError(
-            `Переход «${STATUS_LABELS[from] || from}» → «${STATUS_LABELS[to] || to}» не поддерживается. ` +
-            `Доступно: черновик ⇄ скоро в продаже, далее только вперёд (→ открыт к покупке → распродан).`
-          );
-          setSaving(false);
-          return;
+        // 1) Upload newly attached documents to the backend.
+        for (const d of newDocFiles) {
+          await api.properties.uploadDocument(formData.id, d.file, d.file.name || d.title);
+        }
+        // 2) Persist a status change via the lifecycle endpoints (forward-only, draft⇄coming_soon).
+        if (statusChanged) {
+          if (to === 'coming_soon' && from === 'draft') {
+            await api.properties.announce(formData.id);
+          } else if (to === 'draft' && from === 'coming_soon') {
+            await api.properties.unannounce(formData.id);
+          } else if (to === 'active' && (from === 'draft' || from === 'coming_soon')) {
+            await api.properties.publish(formData.id);
+          } else if (to === 'archived' && from === 'active') {
+            await api.properties.complete(formData.id);
+          } else {
+            setSaveError(
+              `Переход «${STATUS_LABELS[from] || from}» → «${STATUS_LABELS[to] || to}» не поддерживается. ` +
+              `Доступно: черновик ⇄ скоро в продаже, далее только вперёд (→ открыт к покупке → распродан).`
+            );
+            setSaving(false);
+            return;
+          }
         }
         onAddLog(
-          'Property Status Changed',
-          `Статус объекта "${formData.name}" изменён на «${STATUS_LABELS[to] || to}» (сохранено на сервере).`
+          'Property Asset Updated',
+          `Объект "${formData.name}" сохранён на сервере` +
+            (newDocFiles.length ? `, документов загружено: ${newDocFiles.length}` : '') +
+            (statusChanged ? `, статус: «${STATUS_LABELS[to] || to}»` : '') + '.'
         );
         setShowFormModal(false);
         if (onRefreshProperties) await onRefreshProperties();
@@ -585,7 +610,9 @@ export default function PropertiesList({
         setSaveError(
           err?.status === 409
             ? 'Объект не в подходящем статусе для этого перехода — обновите страницу и попробуйте снова.'
-            : (err?.problem?.detail || err?.message || 'Не удалось изменить статус на сервере')
+            : err?.status === 413
+              ? 'Файл слишком большой для сервера'
+              : (err?.problem?.detail || err?.message || 'Не удалось сохранить изменения на сервере')
         );
       } finally {
         setSaving(false);
@@ -606,35 +633,80 @@ export default function PropertiesList({
   };
 
   // Add Document simulation
-  const handleAddDocument = (e) => {
+  const handleAddDocument = async (e) => {
     e.preventDefault();
-    if (!docTitle) return;
+    if (!docFile || docUploading) return;
 
+    // Backend object → actually upload the file (POST /properties/{id}/documents).
+    if (selectedProp._source === 'api') {
+      setDocUploading(true);
+      setDocError('');
+      try {
+        const saved = await api.properties.uploadDocument(selectedProp.id, docFile, docFile.name);
+        // Show it immediately (backend returns id/url/fileName) and keep the list persistent.
+        setSelectedProp((prev) => ({
+          ...prev,
+          documents: [
+            { id: saved?.id, fileName: saved?.fileName || docFile.name, url: saved?.url, contentType: saved?.contentType },
+            ...(prev.documents || []),
+          ],
+        }));
+        onAddLog('Document Uploaded', `Документ "${docFile.name}" загружен на сервер для "${selectedProp.name}".`);
+        setDocSuccess(true);
+        setDocTitle('');
+        setDocFile(null);
+        setTimeout(() => setDocSuccess(false), 2000);
+        if (onRefreshProperties) onRefreshProperties();
+      } catch (err) {
+        setDocError(
+          err?.status === 401 ? 'Нужен вход администратора (нет/просрочен токен)'
+          : err?.status === 403 ? 'Недостаточно прав (нужна роль Admin)'
+          : err?.status === 413 ? 'Файл слишком большой для сервера'
+          : (err?.problem?.detail || err?.message || 'Не удалось загрузить документ на сервер')
+        );
+      } finally {
+        setDocUploading(false);
+      }
+      return;
+    }
+
+    // Demo (non-API) object → local record only.
     const newDoc = {
       id: `doc-add-${Date.now()}`,
-      title: docTitle,
+      title: docTitle || docFile.name,
       category: docCategory,
       propertyName: selectedProp.name,
       propertyId: selectedProp.id,
       dateStr: new Date().toISOString().split('T')[0],
-      fileSize: `${(1.5 + Math.random() * 8).toFixed(1)} MB`,
+      fileSize: `${(docFile.size / (1024 * 1024)).toFixed(1)} MB`,
       status: docCategory === 'collateral' ? 'Registered' : 'Audited'
     };
-
     setDocuments([newDoc, ...documents]);
-    onAddLog(
-      'Document Uploaded',
-      `Загружен документ "${docTitle}" для объекта "${selectedProp.name}".`
-    );
-
+    onAddLog('Document Uploaded', `Загружен документ "${newDoc.title}" для объекта "${selectedProp.name}" (локально).`);
     setDocSuccess(true);
     setDocTitle('');
+    setDocFile(null);
     setTimeout(() => setDocSuccess(false), 2000);
   };
 
-  const handleDeleteDocument = (docId) => {
-    setDocuments(documents.filter(d => d.id !== docId));
-    onAddLog('Document Removed', 'Администратор удалил юридический файл из реестра объекта.');
+  const handleDeleteDocument = async (doc) => {
+    // Backend document → delete on the server; else just drop the local demo record.
+    if (doc._api && selectedProp?._source === 'api') {
+      try {
+        await api.properties.deleteDocument(selectedProp.id, doc.id);
+        setSelectedProp((prev) => ({
+          ...prev,
+          documents: (prev.documents || []).filter((d) => d.id !== doc.id),
+        }));
+        onAddLog('Document Removed', `Документ "${doc.title}" удалён с сервера.`);
+        if (onRefreshProperties) onRefreshProperties();
+      } catch (err) {
+        setDocError(err?.message || 'Не удалось удалить документ на сервере');
+      }
+      return;
+    }
+    setDocuments(documents.filter(d => d.id !== doc.id));
+    onAddLog('Document Removed', 'Администратор удалил файл из реестра объекта (локально).');
   };
 
   // Publish report/news simulation
@@ -728,7 +800,9 @@ export default function PropertiesList({
       {/* Grid of Real Estate Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {getFilteredProperties().map((prop) => {
-          const propDocsCount = documents.filter(d => d.propertyId === prop.id).length;
+          const propDocsCount =
+            (Array.isArray(prop.documents) ? prop.documents.length : 0) +
+            documents.filter(d => d.propertyId === prop.id).length;
           const propNewsCount = publications.filter(p => p.propertyId === prop.id).length;
 
           return (
@@ -1112,32 +1186,50 @@ export default function PropertiesList({
                     <div>
                       <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold mb-3 font-mono">Документы объекта недвижимости</h4>
                       <div className="space-y-2">
-                        {documents.filter(d => d.propertyId === selectedProp.id).map(doc => (
-                          <div key={doc.id} className="flex justify-between items-center p-3 border border-gray-100 rounded hover:bg-[#FBFBFA] transition-all">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <FileText size={16} className="text-[#A38D6D] shrink-0" />
-                              <div className="truncate text-xs">
-                                <span className="font-bold text-gray-900 block truncate">{doc.title}</span>
-                                <span className="text-[9px] text-gray-400 font-mono">Категория: {doc.category.toUpperCase()} • Размер: {doc.fileSize}</span>
+                        {(() => {
+                          // Backend docs (persisted) + any local demo docs for this object.
+                          const apiDocs = (selectedProp.documents || []).map((d) => ({
+                            id: d.id, title: d.fileName || 'Документ', url: d.url, _api: true,
+                          }));
+                          const localDocs = documents
+                            .filter((d) => d.propertyId === selectedProp.id)
+                            .map((d) => ({ id: d.id, title: d.title, category: d.category, fileSize: d.fileSize, status: d.status }));
+                          const allDocs = [...apiDocs, ...localDocs];
+                          if (allDocs.length === 0) {
+                            return <p className="text-xs text-gray-400 italic py-4">Документы еще не загружены для этого объекта.</p>;
+                          }
+                          return allDocs.map((doc) => (
+                            <div key={doc.id} className="flex justify-between items-center p-3 border border-gray-100 rounded hover:bg-[#FBFBFA] transition-all">
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <FileText size={16} className="text-[#A38D6D] shrink-0" />
+                                <div className="truncate text-xs">
+                                  {doc.url ? (
+                                    <a href={doc.url} target="_blank" rel="noreferrer" className="font-bold text-gray-900 block truncate hover:text-[#A38D6D] hover:underline">{doc.title}</a>
+                                  ) : (
+                                    <span className="font-bold text-gray-900 block truncate">{doc.title}</span>
+                                  )}
+                                  <span className="text-[9px] text-gray-400 font-mono">
+                                    {doc._api ? 'Сохранён на сервере' : `Категория: ${(doc.category || '').toUpperCase()} • Размер: ${doc.fileSize}`}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="flex gap-2 shrink-0 items-center">
+                                {!doc._api && doc.status && (
+                                  <span className="text-[8px] font-mono uppercase font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
+                                    {doc.status}
+                                  </span>
+                                )}
+                                <button
+                                  onClick={() => handleDeleteDocument(doc)}
+                                  className="p-1 text-gray-400 hover:text-rose-600 rounded"
+                                  title="Удалить"
+                                >
+                                  <Trash2 size={13} />
+                                </button>
                               </div>
                             </div>
-                            <div className="flex gap-2 shrink-0">
-                              <span className="text-[8px] font-mono uppercase font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
-                                {doc.status}
-                              </span>
-                              <button
-                                onClick={() => handleDeleteDocument(doc.id)}
-                                className="p-1 text-gray-400 hover:text-rose-600 rounded"
-                                title="Удалить"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                        {documents.filter(d => d.propertyId === selectedProp.id).length === 0 && (
-                          <p className="text-xs text-gray-400 italic py-4">Документы еще не загружены для этого объекта.</p>
-                        )}
+                          ));
+                        })()}
                       </div>
                     </div>
 
@@ -1146,33 +1238,28 @@ export default function PropertiesList({
                       <h5 className="font-serif font-bold text-gray-900 mb-2">Загрузить новый документ (PDF / DOC)</h5>
                       <form onSubmit={handleAddDocument} className="space-y-3">
                         {docSuccess && (
-                          <p className="text-[10px] font-mono font-bold text-emerald-600">✓ Документ зафиксирован в реестре!</p>
+                          <p className="text-[10px] font-mono font-bold text-emerald-600">✓ Документ загружен на сервер!</p>
                         )}
-                        <div className="flex gap-2">
+                        {docError && (
+                          <p className="text-[10px] font-mono font-bold text-rose-600">⚠ {docError}</p>
+                        )}
+                        <label className="flex items-center gap-2 p-2 border border-dashed border-gray-300 hover:border-[#A38D6D] rounded cursor-pointer text-gray-500 hover:text-[#A38D6D] transition-colors">
+                          <Upload size={13} className="shrink-0" />
+                          <span className="truncate">{docFile ? docFile.name : 'Выберите файл (PDF, DOC, DOCX, XLSX…)'}</span>
                           <input
-                            type="text"
-                            placeholder="Название документа (например, Оценочный акт 2026)"
-                            required
-                            value={docTitle}
-                            onChange={(e) => setDocTitle(e.target.value)}
-                            className="flex-1 p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                            type="file"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                            onChange={(e) => { setDocFile(e.target.files?.[0] || null); setDocError(''); }}
+                            className="hidden"
                           />
-                          <select
-                            value={docCategory}
-                            onChange={(e) => setDocCategory(e.target.value)}
-                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
-                          >
-                            <option value="legal">Юридический</option>
-                            <option value="valuation">Оценка</option>
-                            <option value="collateral">Залог</option>
-                          </select>
-                        </div>
+                        </label>
                         <button
                           type="submit"
-                          className="flex items-center gap-1.5 bg-[#111111] hover:bg-[#A38D6D] text-white py-2 px-4 rounded text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer"
+                          disabled={!docFile || docUploading}
+                          className="flex items-center gap-1.5 bg-[#111111] hover:bg-[#A38D6D] text-white py-2 px-4 rounded text-[9px] uppercase tracking-widest font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           <Upload size={12} />
-                          <span>Загрузить в архив</span>
+                          <span>{docUploading ? 'Загрузка…' : 'Загрузить на сервер'}</span>
                         </button>
                       </form>
                     </div>

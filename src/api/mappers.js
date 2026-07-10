@@ -62,16 +62,22 @@ export function mapPropertyFromApi(p) {
     // Backend flag name TBD; accept a few likely spellings.
     paused: !!(p.salesPaused ?? p.isPaused ?? p.paused),
 
-    // Object-info fields the backend doesn't expose yet.
-    type: '',
-    city: '',
+    // Object-info characteristics, now persisted on the backend (PropertyDto). Country is not
+    // stored server-side yet, so it stays empty.
+    type: p.propertyType || '',
+    city: p.city || '',
     country: '',
-    address: '',
-    developer: '',
-    floors: null,
-    completionYear: null,
+    address: p.address || '',
+    developer: p.developer || '',
+    floors: p.floors ?? null,
+    completionYear: p.yearBuilt ?? null,
     images,
     image: images[0],
+
+    // Documents persisted on the backend (PropertyDocumentDto { id, url, fileName, contentType }).
+    documents: Array.isArray(p.documents)
+      ? p.documents.map((d) => ({ id: d.id, fileName: d.fileName, url: d.url, contentType: d.contentType }))
+      : [],
 
     _source: 'api',
   };
@@ -248,5 +254,11 @@ export function mapPropertyToCreateRequest(form) {
     tokenPrice,
     totalTokens,
     currency: form.currency || 'USD',
+    // Descriptive characteristics (optional) — now persisted by the backend.
+    propertyType: form.type || null,
+    city: form.city || null,
+    yearBuilt: form.completionYear != null && form.completionYear !== '' ? Number(form.completionYear) : null,
+    developer: form.developer || null,
+    floors: form.floors != null && form.floors !== '' ? Number(form.floors) : null,
   };
 }

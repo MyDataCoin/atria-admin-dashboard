@@ -85,6 +85,15 @@ export const properties = {
   },
   deleteImage: (id, imageId) =>
     request(`/properties/${id}/images/${imageId}`, { method: 'DELETE' }),
+  // Admin only. Uploads a document file (PDF/DOC/…) for a property. The backend stores only
+  // the file (multipart field `file`) and returns { id, url, fileName, contentType }.
+  uploadDocument: (id, file, filename) => {
+    const form = new FormData();
+    form.append('file', file, filename || file.name || 'document.pdf');
+    return request(`/properties/${id}/documents`, { method: 'POST', body: form });
+  },
+  deleteDocument: (id, documentId) =>
+    request(`/properties/${id}/documents/${documentId}`, { method: 'DELETE' }),
 };
 
 // ---- Investments ----------------------------------------------------------
