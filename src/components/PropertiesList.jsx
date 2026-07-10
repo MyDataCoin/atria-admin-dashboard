@@ -133,16 +133,12 @@ export default function PropertiesList({
         );
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
-        // revert optimistic toggle
-        setPausedIds((prev) => {
-          const next = new Set(prev);
-          if (willPause) next.delete(prop.id); else next.add(prop.id);
-          return next;
-        });
+        // Backend has no /pause /resume yet — keep the UI toggle (don't revert) so the admin
+        // still reflects the pause; it just won't reach the public site until the backend ships it.
         onAddLog(
-          'Offering Pause Failed',
-          `Не удалось ${willPause ? 'приостановить' : 'возобновить'} "${prop.name}": ${err?.message || 'нужны эндпоинты /pause /resume на бэке'}.`,
-          'ERROR'
+          willPause ? 'Offering Paused (local)' : 'Offering Resumed (local)',
+          `"${prop.name}" ${willPause ? 'приостановлен' : 'возобновлён'} только в панели — на сайте пока не отразится (нужны эндпоинты /pause /resume на бэке).`,
+          'WARNING'
         );
       }
       return;
@@ -719,6 +715,14 @@ export default function PropertiesList({
                    prop.status === 'coming_soon' ? 'Скоро в продаже' :
                    prop.status === 'draft' ? 'Черновик' : 'Распродан'}
                 </span>
+
+                {/* Paused badge — sales temporarily halted */}
+                {isPaused(prop) && (
+                  <span className="absolute top-3 right-3 flex items-center gap-1 bg-amber-500 text-white text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs">
+                    <Pause size={9} />
+                    Приостановлен
+                  </span>
+                )}
 
                 {prop.type && (
                   <span className="absolute bottom-3 right-3 bg-[#111111]/80 backdrop-blur-xs text-white text-[8px] font-mono tracking-widest px-2.5 py-1 uppercase rounded">
