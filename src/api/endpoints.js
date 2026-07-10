@@ -55,8 +55,12 @@ export const properties = {
   get: (id) => request(`/properties/${id}`, { auth: false }),
   // Admin only. body: { name, description?, address?, totalValue, tokenPrice, totalTokens, currency }
   create: (body) => request('/properties', { method: 'POST', body }),
-  // Admin only. Publishes the offering: draft -> open, so the public site moves the
-  // object from "coming soon" (скоро) to "open for purchase" (открыт к покупке).
+  // Admin only. Announces a draft as "coming soon": draft -> coming_soon, so the public
+  // site lists it under "Скоро" while drafts stay admin-only/hidden.
+  // PROPOSED — backend must add POST /properties/{id}/announce (see handoff notes).
+  announce: (id) => request(`/properties/${id}/announce`, { method: 'POST' }),
+  // Admin only. Publishes the offering: coming_soon (or draft) -> open, so the public site
+  // moves the object to "open for purchase" (открыт к покупке).
   publish: (id) => request(`/properties/${id}/publish`, { method: 'POST' }),
   // Admin only. Closes an open offering: open -> completed, so the public site shows it
   // as "sold out" (распродан). 409 if the property isn't currently open.

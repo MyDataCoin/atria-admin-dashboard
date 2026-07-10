@@ -17,6 +17,10 @@ function mapPropertyStatus(status, isActive) {
       return 'active';
     case 'completed':
       return 'archived';
+    case 'coming_soon':
+    case 'comingsoon':
+    case 'announced':
+      return 'coming_soon';
     case 'draft':
       return 'draft';
     default:
@@ -36,11 +40,11 @@ export function mapPropertyFromApi(p) {
     id: p.id,
     name: p.name,
     description: p.description || '',
-    // Backend lifecycle (draft|open|completed) -> dashboard status. This is the single
-    // source of truth shared with the public site:
-    //   draft     -> "скоро" (coming soon)
-    //   open       -> "открыт к покупке" (open for purchase)
-    //   completed  -> "распродан" (sold out / archived)
+    // Backend lifecycle -> dashboard status. Single source of truth shared with the site:
+    //   draft        -> admin-only (hidden from the public site)
+    //   coming_soon  -> "скоро в продаже" (public site: "Скоро")
+    //   open          -> "открыт к покупке" (open for purchase)
+    //   completed     -> "распродан" (sold out / archived)
     status: mapPropertyStatus(p.status, p.isActive),
 
     // Token economics (live on the property in this backend).

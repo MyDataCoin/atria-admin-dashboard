@@ -21,7 +21,8 @@ import {
   TrendingUp,
   Award,
   RefreshCw,
-  Rocket
+  Rocket,
+  Megaphone
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -251,7 +252,33 @@ export default function PropertiesList({
     setShowFormModal(true);
   };
 
-  // Publish a draft (черновик → открыт к покупке). Persists on the backend via
+  // Announce a draft (черновик → скоро в продаже). Persists via POST /properties/{id}/announce
+  // so the public site lists it under "Скоро" while true drafts stay admin-only.
+  const handleAnnounceProperty = async (propId, e) => {
+    e.stopPropagation();
+    const matched = properties.find(p => p.id === propId);
+    if (matched?._source === 'api') {
+      try {
+        await api.properties.announce(propId);
+        onAddLog(
+          'Property Announced',
+          `Объект "${matched?.name}" помечен «Скоро в продаже» — появится на сайте в категории «Скоро».`
+        );
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        onAddLog(
+          'Property Announce Failed',
+          `Не удалось анонсировать "${matched?.name}": ${err?.message || 'нужен эндпоинт /announce на бэке'}.`,
+          'ERROR'
+        );
+      }
+      return;
+    }
+    setProperties(properties.map(p => (p.id === propId ? { ...p, status: 'coming_soon' } : p)));
+    onAddLog('Property Announced', `Объект "${matched?.name}" помечен «Скоро в продаже» (локально).`);
+  };
+
+  // Publish (черновик/скоро → открыт к покупке). Persists on the backend via
   // POST /properties/{id}/publish so the public site moves the object from "скоро"
   // to "открыт к покупке". Falls back to a local flip for demo (non-API) properties.
   const handlePublishProperty = async (propId, e) => {
@@ -493,6 +520,7 @@ export default function PropertiesList({
       <div className="flex flex-wrap gap-2 pb-1 border-b border-gray-100">
         {[
           { id: 'all', label: 'Все объекты' },
+          { id: 'coming_soon', label: 'Скоро в продаже' },
           { id: 'active', label: 'В портфеле (Активные)' },
           { id: 'draft', label: 'Черновики' },
           { id: 'archived', label: 'Архивные' }
@@ -545,10 +573,13 @@ export default function PropertiesList({
                 {/* Visual state badge */}
                 <span className={`absolute top-3 left-3 text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs ${
                   prop.status === 'active' ? 'bg-emerald-600 text-white' :
+                  prop.status === 'coming_soon' ? 'bg-sky-600 text-white' :
                   prop.status === 'draft' ? 'bg-amber-500 text-white' :
                   'bg-gray-500 text-white'
                 }`}>
-                  {prop.status === 'active' ? 'В портфеле' : prop.status === 'draft' ? 'Черновик' : 'Архив'}
+                  {prop.status === 'active' ? 'В портфеле' :
+                   prop.status === 'coming_soon' ? 'Скоро в продаже' :
+                   prop.status === 'draft' ? 'Черновик' : 'Архив'}
                 </span>
 
                 {prop.type && (
@@ -642,6 +673,16 @@ export default function PropertiesList({
                       <span>Изменить</span>
                     </button>
                     {prop.status === 'draft' && (
+                      <button
+                        onClick={(e) => handleAnnounceProperty(prop.id, e)}
+                        className="flex items-center gap-1 px-2 py-1 text-sky-700 hover:text-white hover:bg-sky-600 border border-sky-200 hover:border-sky-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                        title="Пометить «Скоро в продаже» — покажется на сайте в категории «Скоро»"
+                      >
+                        <Megaphone size={11} />
+                        <span>Скоро</span>
+                      </button>
+                    )}
+                    {prop.status === 'coming_soon' && (
                       <button
                         onClick={(e) => handlePublishProperty(prop.id, e)}
                         className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
@@ -1208,9 +1249,10 @@ export default function PropertiesList({
                       value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-semibold"
                     >
-                      <option value="draft">Черновик (Draft)</option>
-                      <option value="active">Активный в портфеле (Active)</option>
-                      <option value="archived">Архивный / Погашен (Archived)</option>
+                      <option value="draft">Черновик (Draft) — только для админов</option>
+                      <option value="coming_soon">Скоро в продаже (Coming soon)</option>
+                      <option value="active">Открыт к покупке (Open)</option>
+                      <option value="archived">Распродан / Погашен (Completed)</option>
                     </select>
                   </div>
                 </div>
