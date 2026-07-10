@@ -51,8 +51,11 @@ export const auth = {
 // ---- Properties -----------------------------------------------------------
 
 export const properties = {
-  list: () => request('/properties', { auth: false }),
-  get: (id) => request(`/properties/${id}`, { auth: false }),
+  // Authenticated: GET /properties is scoped by role on the backend — drafts are admin-only and
+  // hidden from anonymous (public-site) callers. The admin panel sends its token so it also sees
+  // drafts; the public site calls the same route anonymously and gets coming_soon/open/completed.
+  list: () => request('/properties', { auth: true }),
+  get: (id) => request(`/properties/${id}`, { auth: true }),
   // Admin only. body: { name, description?, address?, totalValue, tokenPrice, totalTokens, currency }
   create: (body) => request('/properties', { method: 'POST', body }),
   // Admin only. Announces a draft as "coming soon": draft -> coming_soon, so the public

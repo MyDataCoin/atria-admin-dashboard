@@ -26,6 +26,14 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// Dashboard property status -> human label (RU). Mirrors the public-site buckets.
+const STATUS_LABELS = {
+  draft: 'Черновик',
+  coming_soon: 'Скоро в продаже',
+  active: 'Открыт к покупке',
+  archived: 'Распродан',
+};
+
 // Re-encode an image to WebP with light compression (quality 0.85 → ≤~15% quality loss),
 // optionally downscaling very large photos, to keep uploads small and avoid HTTP 413.
 // Returns a WebP Blob; falls back to the original file on any error.
@@ -385,6 +393,13 @@ export default function PropertiesList({
           }
         }
 
+        // POST /properties always creates a draft; the create body carries no status. If the admin
+        // picked "Скоро в продаже" in the form, persist that by announcing the new object
+        // (draft -> coming_soon) so the backend status is real, not just a local label.
+        if (formData.status === 'coming_soon') {
+          await api.properties.announce(newId);
+        }
+
         // Documents are kept locally (no backend docs-create wired here) under the new id.
         if (formDocs.length) {
           const synced = formDocs.map(d => ({ ...d, propertyId: newId, propertyName: formData.name }));
@@ -393,7 +408,9 @@ export default function PropertiesList({
 
         onAddLog(
           'Property Asset Created',
-          `Создан объект "${formData.name}" на сервере${files.length ? `, загружено фото: ${files.length}` : ''}.`
+          `Создан объект "${formData.name}" на сервере${
+            formData.status === 'coming_soon' ? ' («Скоро в продаже»)' : ''
+          }${files.length ? `, загружено фото: ${files.length}` : ''}.`
         );
         setShowFormModal(false);
         // Refresh from the backend so the new property (with photos) appears.
@@ -416,9 +433,56 @@ export default function PropertiesList({
       return;
     }
 
-    // EDIT: local only — the backend has no property-update endpoint yet.
+    // EDIT. Documents stay local (no backend docs-edit here); most property fields also
+    // have no backend update endpoint. But the STATUS is real backend state, so a status
+    // change must be persisted via the lifecycle endpoints — otherwise the next refresh
+    // overwrites the local label (this was the "не сохраняется" bug).
     const syncedDocs = formDocs.map(d => ({ ...d, propertyId: formData.id, propertyName: formData.name }));
     setDocuments([...syncedDocs, ...documents.filter(d => d.propertyId !== formData.id)]);
+
+    const original = properties.find(p => p.id === formData.id);
+    const statusChanged = original && formData.status !== original.status;
+
+    if (original?._source === 'api' && statusChanged) {
+      const from = original.status;
+      const to = formData.status;
+      setSaving(true);
+      setSaveError('');
+      try {
+        if (to === 'coming_soon' && from === 'draft') {
+          await api.properties.announce(formData.id);
+        } else if (to === 'active' && (from === 'draft' || from === 'coming_soon')) {
+          await api.properties.publish(formData.id);
+        } else if (to === 'archived' && from === 'active') {
+          await api.properties.complete(formData.id);
+        } else {
+          setSaveError(
+            `Переход «${STATUS_LABELS[from] || from}» → «${STATUS_LABELS[to] || to}» не поддерживается: ` +
+            `жизненный цикл только вперёд (черновик → скоро в продаже → открыт к покупке → распродан).`
+          );
+          setSaving(false);
+          return;
+        }
+        onAddLog(
+          'Property Status Changed',
+          `Статус объекта "${formData.name}" изменён на «${STATUS_LABELS[to] || to}» (сохранено на сервере).`
+        );
+        setShowFormModal(false);
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        setSaveError(
+          err?.status === 409
+            ? 'Объект не в подходящем статусе для этого перехода — обновите страницу и попробуйте снова.'
+            : (err?.problem?.detail || err?.message || 'Не удалось изменить статус на сервере')
+        );
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // Local update (demo properties, or API property with no status change — other fields
+    // aren't persistable without a backend update endpoint).
     const updated = properties.map(p => p.id === formData.id ? formData : p);
     setProperties(updated);
     onAddLog('Property Asset Updated', `Обновлены параметры актива "${formData.name}" (локально).`);
