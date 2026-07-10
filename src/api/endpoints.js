@@ -62,6 +62,9 @@ export const properties = {
   // site lists it under "Скоро" while drafts stay admin-only/hidden.
   // PROPOSED — backend must add POST /properties/{id}/announce (see handoff notes).
   announce: (id) => request(`/properties/${id}/announce`, { method: 'POST' }),
+  // Admin only. Reverse of announce: coming_soon -> draft, hiding it from the public site again.
+  // PROPOSED — backend must add POST /properties/{id}/unannounce (see handoff notes).
+  unannounce: (id) => request(`/properties/${id}/unannounce`, { method: 'POST' }),
   // Admin only. Publishes the offering: coming_soon (or draft) -> open, so the public site
   // moves the object to "open for purchase" (открыт к покупке).
   publish: (id) => request(`/properties/${id}/publish`, { method: 'POST' }),

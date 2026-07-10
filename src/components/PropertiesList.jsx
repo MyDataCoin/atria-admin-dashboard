@@ -22,7 +22,8 @@ import {
   Award,
   RefreshCw,
   Rocket,
-  Megaphone
+  Megaphone,
+  Undo2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -286,6 +287,32 @@ export default function PropertiesList({
     onAddLog('Property Announced', `Объект "${matched?.name}" помечен «Скоро в продаже» (локально).`);
   };
 
+  // Reverse announce (скоро в продаже → черновик). Persists via POST /properties/{id}/unannounce
+  // so the object is hidden from the public site again.
+  const handleUnannounceProperty = async (propId, e) => {
+    e.stopPropagation();
+    const matched = properties.find(p => p.id === propId);
+    if (matched?._source === 'api') {
+      try {
+        await api.properties.unannounce(propId);
+        onAddLog(
+          'Property Unannounced',
+          `Объект "${matched?.name}" возвращён в черновики — скрыт с публичного сайта.`
+        );
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        onAddLog(
+          'Property Unannounce Failed',
+          `Не удалось вернуть в черновик "${matched?.name}": ${err?.message || 'нужен эндпоинт /unannounce на бэке'}.`,
+          'ERROR'
+        );
+      }
+      return;
+    }
+    setProperties(properties.map(p => (p.id === propId ? { ...p, status: 'draft' } : p)));
+    onAddLog('Property Unannounced', `Объект "${matched?.name}" возвращён в черновики (локально).`);
+  };
+
   // Publish (черновик/скоро → открыт к покупке). Persists on the backend via
   // POST /properties/{id}/publish so the public site moves the object from "скоро"
   // to "открыт к покупке". Falls back to a local flip for demo (non-API) properties.
@@ -451,14 +478,16 @@ export default function PropertiesList({
       try {
         if (to === 'coming_soon' && from === 'draft') {
           await api.properties.announce(formData.id);
+        } else if (to === 'draft' && from === 'coming_soon') {
+          await api.properties.unannounce(formData.id);
         } else if (to === 'active' && (from === 'draft' || from === 'coming_soon')) {
           await api.properties.publish(formData.id);
         } else if (to === 'archived' && from === 'active') {
           await api.properties.complete(formData.id);
         } else {
           setSaveError(
-            `Переход «${STATUS_LABELS[from] || from}» → «${STATUS_LABELS[to] || to}» не поддерживается: ` +
-            `жизненный цикл только вперёд (черновик → скоро в продаже → открыт к покупке → распродан).`
+            `Переход «${STATUS_LABELS[from] || from}» → «${STATUS_LABELS[to] || to}» не поддерживается. ` +
+            `Доступно: черновик ⇄ скоро в продаже, далее только вперёд (→ открыт к покупке → распродан).`
           );
           setSaving(false);
           return;
@@ -747,14 +776,23 @@ export default function PropertiesList({
                       </button>
                     )}
                     {prop.status === 'coming_soon' && (
-                      <button
-                        onClick={(e) => handlePublishProperty(prop.id, e)}
-                        className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
-                        title="Опубликовать — открыть к покупке на сайте"
-                      >
-                        <Rocket size={11} />
-                        <span>Опубликовать</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={(e) => handlePublishProperty(prop.id, e)}
+                          className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                          title="Опубликовать — открыть к покупке на сайте"
+                        >
+                          <Rocket size={11} />
+                          <span>Опубликовать</span>
+                        </button>
+                        <button
+                          onClick={(e) => handleUnannounceProperty(prop.id, e)}
+                          className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                          title="Вернуть в черновик — скрыть с сайта"
+                        >
+                          <Undo2 size={13} />
+                        </button>
+                      </>
                     )}
                     {prop.status === 'active' && (
                       <button
