@@ -9,6 +9,21 @@ const PLACEHOLDER_IMAGE =
  * The backend model is leaner than the UI's; fields it doesn't provide
  * (type, city, developer, floors, images, …) are left empty/defaulted.
  */
+// Backend property lifecycle (draft|open|completed) -> dashboard status
+// (draft|active|archived). Falls back to isActive for older payloads without `status`.
+function mapPropertyStatus(status, isActive) {
+  switch ((status || '').toLowerCase()) {
+    case 'open':
+      return 'active';
+    case 'completed':
+      return 'archived';
+    case 'draft':
+      return 'draft';
+    default:
+      return isActive ? 'active' : 'draft';
+  }
+}
+
 export function mapPropertyFromApi(p) {
   // Backend now returns real photos (PropertyImageDto { id, url }); fall back to a
   // placeholder only when the property has none.
@@ -21,7 +36,12 @@ export function mapPropertyFromApi(p) {
     id: p.id,
     name: p.name,
     description: p.description || '',
-    status: p.isActive ? 'active' : 'draft',
+    // Backend lifecycle (draft|open|completed) -> dashboard status. This is the single
+    // source of truth shared with the public site:
+    //   draft     -> "скоро" (coming soon)
+    //   open       -> "открыт к покупке" (open for purchase)
+    //   completed  -> "распродан" (sold out / archived)
+    status: mapPropertyStatus(p.status, p.isActive),
 
     // Token economics (live on the property in this backend).
     currency: p.currency,

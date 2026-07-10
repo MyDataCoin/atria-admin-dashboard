@@ -237,11 +237,6 @@ export default function App() {
                 ⚠ API недоступен — показаны демо-данные. {propertiesError}
               </div>
             )}
-            {!propertiesLoading && !propertiesError && (
-              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
-                ✓ Объекты загружены с бэкенда: {properties.length}
-              </div>
-            )}
             <PropertiesList
               properties={properties}
               setProperties={setProperties}

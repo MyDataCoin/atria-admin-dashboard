@@ -3,17 +3,16 @@ import {
   Coins, 
   Play, 
   Pause, 
-  CheckCircle, 
-  AlertCircle, 
-  RotateCcw, 
-  Flame, 
-  Plus, 
-  Users, 
-  FileCheck,
+  CheckCircle,
+  AlertCircle,
+  Flame,
+  Plus,
+  Users,
   Compass,
   ArrowRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import api, { ApiError } from '../api';
 
 // Formats an amount already in its own currency (no USD conversion). Backend
 // placement amounts are native (e.g. KGS), unlike utils.formatVal which converts.
@@ -44,13 +43,58 @@ export default function OfferingsManager({
   });
 
   const [activeTab, setActiveTab] = useState('all'); // all, active, completed, draft
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
 
-  const handleCreateOffering = (e) => {
+  // Picking an object from the registry auto-fills the token economics from the DB
+  // (price, supply, and the derived target = price × supply). All stay editable.
+  const handlePickProperty = (propertyId) => {
+    const p = properties.find((x) => x.id === propertyId);
+    if (!p) {
+      setNewOffering((prev) => ({ ...prev, propertyId }));
+      return;
+    }
+    const tokenPrice = p.tokenPrice ?? 0;
+    const tokenSupply = p.totalTokens ?? 0;
+    setNewOffering((prev) => ({
+      ...prev,
+      propertyId,
+      tokenPrice,
+      tokenSupply,
+      targetAmount: tokenPrice * tokenSupply,
+      description: prev.description || p.description || '',
+    }));
+  };
+
+  // Editing price or supply re-derives the target capital (price × supply).
+  const handleEconomicsChange = (field, value) => {
+    setNewOffering((prev) => {
+      const next = { ...prev, [field]: value };
+      next.targetAmount = (Number(next.tokenPrice) || 0) * (Number(next.tokenSupply) || 0);
+      return next;
+    });
+  };
+
+  const handleCreateOffering = async (e) => {
     e.preventDefault();
-    if (!newOffering.propertyId) return;
+    if (!newOffering.propertyId || publishing) return;
 
     const matchedProp = properties.find(p => p.id === newOffering.propertyId);
     if (!matchedProp) return;
+
+    // Publish the offering on the backend: flips isActive=true so the public site
+    // moves this object from "coming soon" to "open for purchase".
+    setPublishing(true);
+    setPublishError('');
+    try {
+      await api.properties.publish(newOffering.propertyId);
+    } catch (err) {
+      setPublishError(
+        err instanceof ApiError ? err.message : 'Не удалось опубликовать размещение. Попробуйте ещё раз.'
+      );
+      setPublishing(false);
+      return;
+    }
 
     const added = {
       id: `place-${Date.now().toString().slice(-4)}`,
@@ -60,7 +104,8 @@ export default function OfferingsManager({
       raisedAmount: 0,
       tokenSupply: Number(newOffering.tokenSupply),
       tokenPrice: Number(newOffering.tokenPrice),
-      status: 'draft',
+      currency: matchedProp.currency || 'KGS',
+      status: 'active', // published live — открыт к покупке на сайте
       launchDate: new Date().toISOString().split('T')[0],
       endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       investorsCount: 0,
@@ -69,9 +114,10 @@ export default function OfferingsManager({
 
     setPlacements([...placements, added]);
     onAddLog(
-      'New Offering Drafted',
-      `Создано новое размещение для "${matchedProp.name}" с целевым капиталом ${formatMoney(added.targetAmount, added.currency)}.`
+      'Offering Published',
+      `Опубликовано размещение для "${matchedProp.name}" — объект открыт к покупке на сайте (целевой капитал ${formatMoney(added.targetAmount, added.currency)}).`
     );
+    setPublishing(false);
     setShowCreateModal(false);
   };
 
@@ -93,27 +139,6 @@ export default function OfferingsManager({
     // Sync state for detailed card
     if (selectedPlc && selectedPlc.id === id) {
       setSelectedPlc({ ...selectedPlc, status: newStatus });
-    }
-  };
-
-  // Process investor refund (failed placement)
-  const handleTriggerRefund = (plcId) => {
-    const matched = placements.find(p => p.id === plcId);
-    const updated = placements.map(p => {
-      if (p.id === plcId) {
-        return { ...p, status: 'failed', raisedAmount: 0, investorsCount: 0 };
-      }
-      return p;
-    });
-    setPlacements(updated);
-
-    onAddLog(
-      'Offering Refund Triggered',
-      `ЗАПУЩЕН ВОЗВРАТ СРЕДСТВ ИНВЕСТОРАМ по несостоявшемуся размещению "${matched?.propertyName}". Объем возвратов: ${formatMoney(matched?.raisedAmount || 0, matched?.currency)}.`
-    );
-
-    if (selectedPlc && selectedPlc.id === plcId) {
-      setSelectedPlc({ ...selectedPlc, status: 'failed', raisedAmount: 0, investorsCount: 0 });
     }
   };
 
@@ -162,7 +187,7 @@ export default function OfferingsManager({
           className="flex items-center gap-1.5 bg-[#111111] hover:bg-[#A38D6D] text-white px-4 py-2.5 rounded text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer"
         >
           <Plus size={12} />
-          <span>Создать размещение</span>
+          <span>Опубликовать</span>
         </button>
       </div>
 
@@ -342,18 +367,6 @@ export default function OfferingsManager({
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-dashed border-gray-100">
-                    {/* Refund Option */}
-                    {selectedPlc.status !== 'completed' && selectedPlc.status !== 'failed' && (
-                      <button
-                        onClick={() => handleTriggerRefund(selectedPlc.id)}
-                        className="flex items-center justify-center gap-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-3 py-2 rounded text-[9px] uppercase font-bold tracking-widest cursor-pointer transition-all"
-                        title="Возвратить инвестиции на кошельки держателей в случае если сбор провалился"
-                      >
-                        <RotateCcw size={11} />
-                        <span>Возврат средств</span>
-                      </button>
-                    )}
-
                     {/* Token buyback/burn option */}
                     {selectedPlc.status === 'completed' && (
                       <button
@@ -366,22 +379,6 @@ export default function OfferingsManager({
                       </button>
                     )}
                   </div>
-                </div>
-
-                <div className="border-t border-gray-100 pt-4 flex items-center justify-between text-[10px] text-gray-500 font-mono">
-                  <span className="flex items-center gap-1">
-                    <FileCheck size={12} className="text-[#A38D6D]" />
-                    Документы по итогам размещения готовы
-                  </span>
-                  <button 
-                    onClick={() => {
-                      onAddLog('Report Generated', `Скачан итоговый отчет размещения ${selectedPlc.id.toUpperCase()}`);
-                      alert('Формирование официального отчета для государственных органов завершено. Файл CH_OFFERING_REPORT.xlsx загружен.');
-                    }}
-                    className="text-[#A38D6D] underline font-bold uppercase tracking-wider"
-                  >
-                    Экспорт реестра
-                  </button>
                 </div>
               </div>
             </motion.div>
@@ -410,22 +407,25 @@ export default function OfferingsManager({
                   <select
                     required
                     value={newOffering.propertyId}
-                    onChange={(e) => setNewOffering({...newOffering, propertyId: e.target.value})}
+                    onChange={(e) => handlePickProperty(e.target.value)}
                     className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-serif font-bold"
                   >
-                    <option value="">-- Выбрать из кадастра --</option>
+                    <option value="">-- Выбрать из реестра --</option>
                     {properties.map(p => (
                       <option key={p.id} value={p.id}>{p.city ? `${p.name} (${p.city})` : p.name}</option>
                     ))}
                   </select>
+                  <p className="text-[9px] text-gray-400 font-mono mt-1">
+                    Параметры выпуска подставляются из карточки объекта — их можно скорректировать.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за 1 токен ($)</label>
+                    <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за 1 токен (сом)</label>
                     <input
                       type="number" required placeholder="50" min="1"
-                      value={newOffering.tokenPrice} onChange={(e) => setNewOffering({...newOffering, tokenPrice: Number(e.target.value)})}
+                      value={newOffering.tokenPrice} onChange={(e) => handleEconomicsChange('tokenPrice', Number(e.target.value))}
                       className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
                     />
                   </div>
@@ -433,19 +433,22 @@ export default function OfferingsManager({
                     <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Всего токенов к выпуску</label>
                     <input
                       type="number" required placeholder="Например: 10000" min="1"
-                      value={newOffering.tokenSupply} onChange={(e) => setNewOffering({...newOffering, tokenSupply: Number(e.target.value)})}
+                      value={newOffering.tokenSupply} onChange={(e) => handleEconomicsChange('tokenSupply', Number(e.target.value))}
                       className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Целевой капитал ($)</label>
+                  <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Целевой капитал (сом)</label>
                   <input
                     type="number" required placeholder="Например: 600000" min="0"
                     value={newOffering.targetAmount} onChange={(e) => setNewOffering({...newOffering, targetAmount: Number(e.target.value)})}
                     className="w-full p-2.5 border border-gray-200 bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] font-mono font-bold"
                   />
+                  <p className="text-[9px] text-gray-400 font-mono mt-1">
+                    Автоматически = цена × количество токенов.
+                  </p>
                 </div>
 
                 <div>
@@ -458,19 +461,24 @@ export default function OfferingsManager({
                   />
                 </div>
 
+                {publishError && (
+                  <p className="text-[11px] text-rose-600 font-medium">{publishError}</p>
+                )}
                 <div className="flex gap-3 pt-3 border-t border-gray-150">
                   <button
                     type="button"
                     onClick={() => setShowCreateModal(false)}
-                    className="flex-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold uppercase tracking-widest py-2 rounded transition-all text-center cursor-pointer"
+                    disabled={publishing}
+                    className="flex-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold uppercase tracking-widest py-2 rounded transition-all text-center cursor-pointer disabled:opacity-50"
                   >
                     Отмена
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-[#111111] hover:bg-[#A38D6D] text-white font-bold uppercase tracking-widest py-2 rounded transition-all text-center cursor-pointer"
+                    disabled={publishing || !newOffering.propertyId}
+                    className="flex-1 bg-[#111111] hover:bg-[#A38D6D] text-white font-bold uppercase tracking-widest py-2 rounded transition-all text-center cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Зарегистрировать выпуск
+                    {publishing ? 'Публикуем…' : 'Опубликовать'}
                   </button>
                 </div>
               </form>

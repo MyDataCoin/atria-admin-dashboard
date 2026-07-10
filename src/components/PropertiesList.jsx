@@ -20,7 +20,8 @@ import {
   Eye,
   TrendingUp,
   Award,
-  RefreshCw
+  RefreshCw,
+  Rocket
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -250,23 +251,63 @@ export default function PropertiesList({
     setShowFormModal(true);
   };
 
-  const handleArchiveProperty = (propId, e) => {
+  // Publish a draft (черновик → открыт к покупке). Persists on the backend via
+  // POST /properties/{id}/publish so the public site moves the object from "скоро"
+  // to "открыт к покупке". Falls back to a local flip for demo (non-API) properties.
+  const handlePublishProperty = async (propId, e) => {
     e.stopPropagation();
-    const updated = properties.map(p => {
-      if (p.id === propId) {
-        return { ...p, status: 'archived' };
-      }
-      return p;
-    });
-    setProperties(updated);
-    
     const matched = properties.find(p => p.id === propId);
-    onAddLog(
-      'Property Archived',
-      `Объект "${matched?.name}" переведен в архив. Смарт-контракты оферты деактивированы.`
-    );
+    if (matched?._source === 'api') {
+      try {
+        await api.properties.publish(propId);
+        onAddLog(
+          'Property Published',
+          `Объект "${matched?.name}" опубликован — открыт к покупке на сайте.`
+        );
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        onAddLog(
+          'Property Publish Failed',
+          `Не удалось опубликовать "${matched?.name}": ${err?.message || 'ошибка API'}.`,
+          'ERROR'
+        );
+      }
+      return;
+    }
+    setProperties(properties.map(p => (p.id === propId ? { ...p, status: 'active' } : p)));
+    onAddLog('Property Published', `Объект "${matched?.name}" опубликован (локально).`);
   };
 
+  // Close an open offering (активный → распродан/архив). Persists via
+  // POST /properties/{id}/complete (open → completed) so the public site shows "распродан".
+  const handleArchiveProperty = async (propId, e) => {
+    e.stopPropagation();
+    const matched = properties.find(p => p.id === propId);
+    if (matched?._source === 'api') {
+      try {
+        await api.properties.complete(propId);
+        onAddLog(
+          'Property Completed',
+          `Объект "${matched?.name}" завершён — на сайте отображается как «распродан».`
+        );
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        onAddLog(
+          'Property Complete Failed',
+          `Не удалось завершить "${matched?.name}": ${
+            err?.status === 409 ? 'объект не в статусе «открыт к покупке»' : (err?.message || 'ошибка API')
+          }.`,
+          'ERROR'
+        );
+      }
+      return;
+    }
+    setProperties(properties.map(p => (p.id === propId ? { ...p, status: 'archived' } : p)));
+    onAddLog('Property Archived', `Объект "${matched?.name}" переведён в архив (локально).`);
+  };
+
+  // Local-only restore for demo properties. The backend "completed" state is terminal
+  // (no reopen endpoint), so this is not offered for API-backed objects.
   const handleUnarchiveProperty = (propId, e) => {
     e.stopPropagation();
     const updated = properties.map(p => {
@@ -276,7 +317,7 @@ export default function PropertiesList({
       return p;
     });
     setProperties(updated);
-    
+
     const matched = properties.find(p => p.id === propId);
     onAddLog(
       'Property Unarchived',
@@ -444,7 +485,7 @@ export default function PropertiesList({
           className="flex items-center gap-1.5 bg-[#A38D6D] hover:bg-[#8e7b5e] text-white px-4 py-2.5 rounded text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer"
         >
           <Plus size={12} />
-          <span>Зарегистрировать объект</span>
+          <span>Создать объект</span>
         </button>
       </div>
 
@@ -600,7 +641,26 @@ export default function PropertiesList({
                       <Edit3 size={11} />
                       <span>Изменить</span>
                     </button>
-                    {prop.status === 'archived' ? (
+                    {prop.status === 'draft' && (
+                      <button
+                        onClick={(e) => handlePublishProperty(prop.id, e)}
+                        className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                        title="Опубликовать — открыть к покупке на сайте"
+                      >
+                        <Rocket size={11} />
+                        <span>Опубликовать</span>
+                      </button>
+                    )}
+                    {prop.status === 'active' && (
+                      <button
+                        onClick={(e) => handleArchiveProperty(prop.id, e)}
+                        className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
+                        title="Завершить размещение — на сайте станет «распродан»"
+                      >
+                        <Archive size={13} />
+                      </button>
+                    )}
+                    {prop.status === 'archived' && prop._source !== 'api' && (
                       <button
                         onClick={(e) => handleUnarchiveProperty(prop.id, e)}
                         className="p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 rounded transition-colors flex items-center gap-1 text-[10px] font-mono font-bold"
@@ -608,14 +668,6 @@ export default function PropertiesList({
                       >
                         <RefreshCw size={11} className="animate-none text-emerald-600" />
                         <span>Извлечь</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => handleArchiveProperty(prop.id, e)}
-                        className="p-1 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
-                        title="Архивировать актив"
-                      >
-                        <Archive size={13} />
                       </button>
                     )}
                   </div>
@@ -1169,9 +1221,9 @@ export default function PropertiesList({
                     <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                       Параметры выпуска (обязательно)
                     </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за токен</label>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за токен (сом)</label>
                         <input
                           type="number" min="1" step="any" required
                           value={formData.tokenPrice ?? ''} onChange={(e) => setFormData({...formData, tokenPrice: Number(e.target.value)})}
@@ -1185,17 +1237,6 @@ export default function PropertiesList({
                           value={formData.totalTokens ?? ''} onChange={(e) => setFormData({...formData, totalTokens: Number(e.target.value)})}
                           className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                         />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Валюта</label>
-                        <select
-                          value={formData.currency || 'KGS'} onChange={(e) => setFormData({...formData, currency: e.target.value})}
-                          className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                        >
-                          <option value="KGS">KGS</option>
-                          <option value="USD">USD</option>
-                          <option value="EUR">EUR</option>
-                        </select>
                       </div>
                     </div>
                   </div>
