@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { mapHolderFromInvestment, mapPropertyToCreateRequest } from '../api/mappers';
 import { 
@@ -28,6 +28,9 @@ import {
   Pause
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+// Max photos allowed per property on the create form.
+const MAX_IMAGES = 10;
 
 // Dashboard property status -> human label (RU). Mirrors the public-site buckets.
 const STATUS_LABELS = {
@@ -109,6 +112,45 @@ export default function PropertiesList({
   const [holdersError, setHoldersError] = useState('');
   const [activeSubTab, setActiveSubTab] = useState('info'); // info, docs, collateral, news, holders
   const [statusFilter, setStatusFilter] = useState('all');
+  // ---- Address autocomplete (OpenStreetMap / Nominatim, no API key, KG only) ------------
+  const [addrSuggestions, setAddrSuggestions] = useState([]);
+  const [addrOpen, setAddrOpen] = useState(false);
+  const [addrLoading, setAddrLoading] = useState(false);
+  const addrDebounce = useRef(null);
+
+  const fetchAddrSuggestions = (q) => {
+    if (addrDebounce.current) clearTimeout(addrDebounce.current);
+    if (!q || q.trim().length < 3) {
+      setAddrSuggestions([]);
+      setAddrOpen(false);
+      return;
+    }
+    addrDebounce.current = setTimeout(async () => {
+      try {
+        setAddrLoading(true);
+        const url =
+          `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6` +
+          `&countrycodes=kg&accept-language=ru&q=${encodeURIComponent(q)}`;
+        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        const data = await res.json();
+        setAddrSuggestions(Array.isArray(data) ? data : []);
+        setAddrOpen(true);
+      } catch {
+        setAddrSuggestions([]);
+      } finally {
+        setAddrLoading(false);
+      }
+    }, 400);
+  };
+
+  const pickAddress = (s) => {
+    const a = s.address || {};
+    const city = a.city || a.town || a.village || a.county || '';
+    setFormData((prev) => ({ ...prev, address: s.display_name, city: prev.city || city }));
+    setAddrSuggestions([]);
+    setAddrOpen(false);
+  };
+
   // Pause/resume an active offering. Persisted on the backend (POST /pause | /resume) so the
   // public site can block purchases while paused; optimistic UI with revert on failure.
   // Demo (non-API) objects toggle locally only.
@@ -264,7 +306,7 @@ export default function PropertiesList({
       id: `prop-${Date.now()}`,
       name: '',
       city: '',
-      country: '',
+      country: 'Кыргызстан', // фиксировано — поле убрано из формы
       address: '',
       developer: '',
       floors: 1,
@@ -439,7 +481,7 @@ export default function PropertiesList({
       try {
         const newId = await api.properties.create(mapPropertyToCreateRequest(formData));
 
-        const files = (formData.imageFiles || []).slice(0, 3);
+        const files = (formData.imageFiles || []).slice(0, MAX_IMAGES);
         for (const file of files) {
           const compressed = await compressImage(file); // → WebP, light compression
           const isWebp = compressed?.type === 'image/webp';
@@ -1347,19 +1389,19 @@ export default function PropertiesList({
 
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Город</label>
-                    <input 
-                      type="text" placeholder="Киото / Цуг"
+                    <input
+                      type="text" placeholder="Например: Бишкек"
                       value={formData.city} onChange={(e) => setFormData({...formData, city: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Страна</label>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
                     <input
-                      type="text" placeholder="Швейцария"
-                      value={formData.country} onChange={(e) => setFormData({...formData, country: e.target.value})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                      type="number" min="1800" max="2100" placeholder="Например: 2020"
+                      value={formData.completionYear ?? ''} onChange={(e) => setFormData({...formData, completionYear: Number(e.target.value)})}
+                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                     />
                   </div>
                 </div>
@@ -1367,12 +1409,41 @@ export default function PropertiesList({
                 {/* Address, Developer, Floors, Description */}
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Полный адрес</label>
-                    <input
-                      type="text" placeholder="Например: Bahnhofstrasse 12, 6300 Zug, Switzerland"
-                      value={formData.address || ''} onChange={(e) => setFormData({...formData, address: e.target.value})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                    />
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес объекта</label>
+                    <div className="relative">
+                      <input
+                        type="text" placeholder="Начните вводить адрес: ул. Чуй 123, Бишкек"
+                        autoComplete="off"
+                        value={formData.address || ''}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setFormData((prev) => ({ ...prev, address: v }));
+                          fetchAddrSuggestions(v);
+                        }}
+                        onFocus={() => { if (addrSuggestions.length) setAddrOpen(true); }}
+                        onBlur={() => setTimeout(() => setAddrOpen(false), 150)}
+                        className="w-full p-3 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                      />
+                      {addrLoading && (
+                        <span className="absolute right-3 top-3.5 w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+                      )}
+                      {addrOpen && addrSuggestions.length > 0 && (
+                        <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-60 overflow-y-auto">
+                          {addrSuggestions.map((s) => (
+                            <li key={s.place_id}>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => { e.preventDefault(); pickAddress(s); }}
+                                className="w-full text-left px-3 py-2 text-[11px] text-gray-700 hover:bg-[#FAF8F3] hover:text-[#A38D6D] border-b border-gray-50 last:border-0 flex items-start gap-2"
+                              >
+                                <MapPin size={12} className="text-[#A38D6D] mt-0.5 shrink-0" />
+                                <span className="leading-snug">{s.display_name}</span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1404,17 +1475,8 @@ export default function PropertiesList({
                   </div>
                 </div>
 
-                {/* Year & Status (экономика задаётся в Инвест-размещении) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-gray-100 pt-4">
-                  <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
-                    <input
-                      type="number" min="1800" max="2100" placeholder="Например: 2020"
-                      value={formData.completionYear ?? ''} onChange={(e) => setFormData({...formData, completionYear: Number(e.target.value)})}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                    />
-                  </div>
-
+                {/* Status (экономика задаётся в параметрах выпуска) */}
+                <div className="border-t border-gray-100 pt-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Статус объекта</label>
                     <select
@@ -1435,7 +1497,7 @@ export default function PropertiesList({
                     <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                       Параметры выпуска (обязательно)
                     </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div>
                         <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Цена за токен (сом)</label>
                         <input
@@ -1452,14 +1514,26 @@ export default function PropertiesList({
                           className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                         />
                       </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Общая стоимость (сом)</label>
+                        <input
+                          type="number" min="1" step="any" required
+                          placeholder="Например: 200000000"
+                          value={formData.totalValue ?? ''} onChange={(e) => setFormData({...formData, totalValue: Number(e.target.value)})}
+                          className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
                     </div>
+                    <p className="text-[8px] text-gray-400 font-mono mt-1.5">
+                      Общая оценочная стоимость объекта. По умолчанию = цена токена × количество токенов, но можно указать своё.
+                    </p>
                   </div>
                 )}
 
                 {/* Images Upload Area */}
                 <div className="border-t border-gray-100 pt-4">
                   <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
-                    Изображения объекта (Максимум 3)
+                    Изображения объекта (Максимум {MAX_IMAGES})
                   </span>
                   
                   <div className="grid grid-cols-3 gap-3 mb-3">
@@ -1489,19 +1563,19 @@ export default function PropertiesList({
                       </div>
                     ))}
                     
-                    {/* If less than 3, show upload slots */}
-                    {(!formData.images || formData.images.length < 3) && (
+                    {/* If under the limit, show an upload slot */}
+                    {(!formData.images || formData.images.length < MAX_IMAGES) && (
                       <label className="border border-dashed border-gray-300 hover:border-[#A38D6D] h-24 rounded-sm flex flex-col items-center justify-center cursor-pointer transition-colors text-gray-400 hover:text-[#A38D6D] p-2 text-center bg-gray-50/50">
                         <Upload size={16} className="mb-1 text-gray-400" />
                         <span className="text-[8px] uppercase tracking-wider font-bold">Добавить</span>
-                        <span className="text-[7px] text-gray-400 font-mono">Макс. 3</span>
+                        <span className="text-[7px] text-gray-400 font-mono">Макс. {MAX_IMAGES}</span>
                         <input
                           type="file"
                           accept="image/*"
-                          multiple={3 - (formData.images ? formData.images.length : 0) > 1}
+                          multiple={MAX_IMAGES - (formData.images ? formData.images.length : 0) > 1}
                           onChange={(e) => {
                             const files = Array.from(e.target.files || []);
-                            const limit = 3 - (formData.images ? formData.images.length : 0);
+                            const limit = MAX_IMAGES - (formData.images ? formData.images.length : 0);
                             const allowedFiles = files.slice(0, limit);
                             
                             allowedFiles.forEach(file => {
@@ -1528,7 +1602,7 @@ export default function PropertiesList({
                   </div>
                   
                   <p className="text-[8px] text-gray-400 font-mono">
-                    Выберите JPG, PNG или WEBP (макс. 3). При создании фото загружаются на сервер.
+                    Выберите JPG, PNG или WEBP (макс. {MAX_IMAGES}). При создании фото загружаются на сервер.
                   </p>
                 </div>
 
