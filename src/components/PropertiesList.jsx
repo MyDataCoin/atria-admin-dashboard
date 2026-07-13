@@ -803,7 +803,6 @@ export default function PropertiesList({
           const propDocsCount =
             (Array.isArray(prop.documents) ? prop.documents.length : 0) +
             documents.filter(d => d.propertyId === prop.id).length;
-          const propNewsCount = publications.filter(p => p.propertyId === prop.id).length;
 
           return (
             <div
@@ -918,7 +917,7 @@ export default function PropertiesList({
                 <div className="mt-4 pt-3 border-t border-dashed border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
                   <span className="flex items-center gap-1">
                     <FileText size={12} className="text-[#A38D6D]" />
-                    {propDocsCount} док. • {propNewsCount} отч.
+                    {propDocsCount} док.
                   </span>
                   
                   <div className="flex gap-2">
@@ -1029,7 +1028,6 @@ export default function PropertiesList({
                 {[
                   { id: 'info', label: 'Об объекте' },
                   { id: 'docs', label: 'Документы' },
-                  { id: 'news', label: 'Финотчеты & Новости' },
                   { id: 'holders', label: 'Доли инвесторов' }
                 ].map((tab) => (
                   <button
@@ -1267,75 +1265,7 @@ export default function PropertiesList({
                 )}
 
                 {/* TAB: PUBLISH NEWS & REPORT */}
-                {activeSubTab === 'news' && (
-                  <div className="space-y-6">
-                    <div>
-                      <h4 className="text-xs uppercase tracking-wider text-gray-500 font-bold mb-3 font-mono">История отчетов и новостей</h4>
-                      <div className="space-y-3">
-                        {publications.filter(p => p.propertyId === selectedProp.id).map(pub => (
-                          <div key={pub.id} className="p-3.5 border border-gray-100 rounded text-xs bg-white space-y-1">
-                            <div className="flex justify-between items-start">
-                              <span className="font-bold text-gray-900 leading-tight block">{pub.title}</span>
-                              <span className="text-[8px] font-mono uppercase bg-amber-50 text-amber-700 px-2 py-0.5 rounded border border-amber-100 font-bold shrink-0 ml-2">
-                                {pub.type}
-                              </span>
-                            </div>
-                            <p className="text-gray-500 text-[11px] leading-relaxed pt-1">{pub.summary}</p>
-                            <span className="text-[8px] text-gray-400 font-mono block pt-1.5 border-t border-gray-50">Дата публикации: {pub.date} • Статус: PUBLISHED</span>
-                          </div>
-                        ))}
-                        {publications.filter(p => p.propertyId === selectedProp.id).length === 0 && (
-                          <p className="text-xs text-gray-400 italic py-4">Новостей и отчетов по этому объекту еще нет.</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Publish News Form */}
-                    <div className="border-t border-gray-100 pt-5 text-xs">
-                      <h5 className="font-serif font-bold text-gray-900 mb-2">Создать новость или финансовый отчет</h5>
-                      <form onSubmit={handlePublishNews} className="space-y-3">
-                        {pubSuccess && (
-                          <p className="text-[10px] font-mono font-bold text-emerald-600">✓ Отчет успешно опубликован для инвесторов!</p>
-                        )}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <input
-                            type="text"
-                            placeholder="Тема публикации"
-                            required
-                            value={pubTitle}
-                            onChange={(e) => setPubTitle(e.target.value)}
-                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
-                          />
-                          <select
-                            value={pubType}
-                            onChange={(e) => setPubType(e.target.value)}
-                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
-                          >
-                            <option value="Financial Report">Финансовый аудит</option>
-                            <option value="News Release">Новость объекта</option>
-                            <option value="Valuation Audit">Оценка стоимости</option>
-                          </select>
-                        </div>
-                        <textarea
-                          placeholder="Краткое содержание публикации..."
-                          rows={3}
-                          required
-                          value={pubSummary}
-                          onChange={(e) => setPubSummary(e.target.value)}
-                          className="w-full p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] resize-none"
-                        />
-                        <button
-                          type="submit"
-                          className="bg-[#111111] hover:bg-[#A38D6D] text-white text-[9px] py-2 px-4 rounded uppercase tracking-widest font-bold transition-all cursor-pointer"
-                        >
-                          Опубликовать новость
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
-                {/* TAB 5: SHAREHOLDERS LIST (real investments from backend, demo fallback) */}
+                {/* TAB: SHAREHOLDERS LIST (real investments from backend, demo fallback) */}
                 {activeSubTab === 'holders' && (
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">

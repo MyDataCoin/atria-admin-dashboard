@@ -2,6 +2,7 @@ import React from 'react';
 import { 
   LayoutDashboard, 
   Building,
+  Newspaper,
   Users,
   Wallet,
   Activity,
@@ -23,6 +24,7 @@ export default function Sidebar({
   const menuItems = [
     { id: 'dashboard', label: 'Сводка & Статистика', icon: LayoutDashboard },
     { id: 'properties', label: 'Объекты & Документы', icon: Building },
+    { id: 'news', label: 'Финотчёты & Новости', icon: Newspaper },
     { id: 'investors', label: 'Выплаты & Инвесторы', icon: Wallet },
     { id: 'users', label: 'Пользователи & KYC/AML', icon: Users },
     { id: 'support', label: 'Поддержка & Тикеты', icon: HelpCircle },

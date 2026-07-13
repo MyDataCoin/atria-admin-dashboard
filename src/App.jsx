@@ -7,6 +7,7 @@ import Overview from './components/Overview';
 import PropertiesList from './components/PropertiesList';
 import PayoutsAndInvestors from './components/PayoutsAndInvestors';
 import UsersAndKyc from './components/UsersAndKyc';
+import NewsAndReports from './components/NewsAndReports';
 import ActivitiesTimeline from './components/ActivitiesTimeline';
 import SupportTickets from './components/SupportTickets';
 
@@ -246,6 +247,15 @@ export default function App() {
               onAddLog={handleAddAuditLog}
             />
           </div>
+        );
+      case 'news':
+        return (
+          <NewsAndReports
+            publications={publications}
+            setPublications={setPublications}
+            properties={properties}
+            onAddLog={handleAddAuditLog}
+          />
         );
       case 'investors':
         return (
