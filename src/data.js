@@ -458,7 +458,6 @@ export const INITIAL_AUDIT_LOGS = [
     action: 'Whitelist Approved',
     details: 'Добавлен кошелек 0x7F2C9A3F...3e4F инвестора Жан-Пьер Сутер в смарт-контракт ATR-CABIATI.',
     status: 'SUCCESS',
-    ipAddress: '194.230.14.82'
   },
   {
     id: 'audit-2',
@@ -467,7 +466,6 @@ export const INITIAL_AUDIT_LOGS = [
     action: 'Property Draft Saved',
     details: 'Создан черновик объекта "Коттеджи на норвежских фьордах". Загружена финансовая модель.',
     status: 'SUCCESS',
-    ipAddress: '178.62.241.109'
   },
   {
     id: 'audit-3',
@@ -476,7 +474,6 @@ export const INITIAL_AUDIT_LOGS = [
     action: 'Smart Contract Deploy',
     details: 'Успешно деплоирован смарт-контракт токенизации ATR-CABIATI на Arbitrum One.',
     status: 'SUCCESS',
-    ipAddress: '82.220.10.45'
   },
   {
     id: 'audit-4',
@@ -485,7 +482,6 @@ export const INITIAL_AUDIT_LOGS = [
     action: 'PEP Check Triggered',
     details: 'Обнаружена санкционная тревога средней критичности для кошелька 0xf8E12A...B098.',
     status: 'WARNING',
-    ipAddress: '194.230.14.82'
   },
   {
     id: 'audit-5',
@@ -494,7 +490,6 @@ export const INITIAL_AUDIT_LOGS = [
     action: 'Payout Initiated',
     details: 'Создана платежная ведомость по выплатам за Июнь 2026 по Вилле Сола Кабиати ($14,500).',
     status: 'SUCCESS',
-    ipAddress: '178.62.241.109'
   },
   {
     id: 'audit-6',
@@ -503,7 +498,6 @@ export const INITIAL_AUDIT_LOGS = [
     action: 'AML Automated Monitor',
     details: 'Блокировка аккаунта инвестора Амаль аль-Мансури (0x8823FB...) из-за санкционного совпадения SDN OFAC.',
     status: 'ALERT',
-    ipAddress: '127.0.0.1 (SYS)'
   }
 ];
 

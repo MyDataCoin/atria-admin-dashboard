@@ -247,6 +247,30 @@ export function mapTicketFromApi(t) {
   };
 }
 
+// ---- Audit log ------------------------------------------------------------
+
+/**
+ * AuditLogDto -> dashboard audit row.
+ * The backend composes `summary` and `severity` itself, so the UI renders them as-is
+ * rather than re-deriving copy from the raw event payload.
+ *
+ * `actorName` is null for system-generated entries, and is NOT always an admin — a
+ * ticket is opened by an investor, so the column is "Исполнитель", not "Администратор".
+ * There is no IP address on the entry: the backend doesn't record one, so the UI must
+ * not show a column for it (it used to display a hardcoded fake IP).
+ */
+export function mapAuditLogFromApi(a) {
+  return {
+    id: a.id,
+    timestamp: fmtTs(a.occurredOnUtc),
+    adminName: a.actorName || 'Система',
+    action: a.eventType || '',
+    details: a.summary || '',
+    status: (a.severity || 'success').toUpperCase(), // SUCCESS | WARNING | ALERT
+    _source: 'api',
+  };
+}
+
 // ---- Publications ---------------------------------------------------------
 // Backend enum (snake_case) <-> the labels the dashboard's PUB_TYPES use.
 

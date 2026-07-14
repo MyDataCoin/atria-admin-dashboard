@@ -1,24 +1,15 @@
 import React, { useState } from 'react';
-import { 
-  ShieldAlert, 
-  CheckCircle, 
-  Clock, 
-  UserCheck, 
-  Terminal, 
-  Plus, 
-  Search, 
-  Shield, 
-  Sliders, 
-  AlertTriangle,
-  Key
-} from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-export default function ActivitiesTimeline({ 
-  activities, // this acts as Audit Logs state in App
-  setActivities,
+export default function ActivitiesTimeline({
+  // Server-side audit trail (read-only — the dashboard never appends to it).
+  activities,
   admins,
   setAdmins,
+  loading,
+  error,
+  onRefresh,
   onAddLog
 }) {
   const [activeTab, setActiveTab] = useState('audit'); // audit, rbac
@@ -47,9 +38,12 @@ export default function ActivitiesTimeline({
     };
 
     setAdmins([...admins, added]);
+    // RBAC is dashboard-local (no backend endpoint), so the server records nothing here.
     onAddLog(
       'New Administrator Registered',
-      `Создан новый административный аккаунт "${newAdmin.name}" с правами доступа [${newAdmin.role}].`
+      `Создан новый административный аккаунт "${newAdmin.name}".`,
+      'SUCCESS',
+      { local: true }
     );
 
     setShowAddAdmin(false);
@@ -143,18 +137,41 @@ export default function ActivitiesTimeline({
       {/* TAB 1: IMMUTABLE AUDIT TRAIL */}
       {activeTab === 'audit' && (
         <div className="space-y-6">
+          {loading && (
+            <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500">
+              <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+              Загрузка журнала аудита…
+            </div>
+          )}
+          {!loading && error && (
+            <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              ⚠ Журнал недоступен — показаны демо-данные. {error}
+            </div>
+          )}
+
           {/* Filters card */}
           <div className="bg-white border border-gray-150 p-4 rounded-sm flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
               <input
                 type="text"
-                placeholder="Поиск по журналу (Админ, действие, детали)..."
+                placeholder="Поиск по журналу (исполнитель, действие, детали)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs pl-9 pr-4 py-2 border border-gray-200 rounded focus:outline-none focus:border-[#A38D6D] bg-white text-gray-900"
               />
             </div>
+
+            {onRefresh && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                disabled={loading}
+                className="text-[9px] font-mono uppercase tracking-wider font-bold text-gray-400 hover:text-[#A38D6D] disabled:opacity-50 transition-colors cursor-pointer shrink-0"
+              >
+                Обновить
+              </button>
+            )}
 
             <div className="flex items-center gap-2">
               <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Критичность:</span>
@@ -185,7 +202,6 @@ export default function ActivitiesTimeline({
                     <th className="py-3 px-4 text-left">Штамп времени</th>
                     <th className="py-3 px-4 text-left">Исполнитель</th>
                     <th className="py-3 px-4 text-left">Действие</th>
-                    <th className="py-3 px-4 text-left">IP-Адрес</th>
                     <th className="py-3 px-4 text-left">Детали</th>
                     <th className="py-3 px-4 text-center">Статус</th>
                   </tr>
@@ -202,11 +218,13 @@ export default function ActivitiesTimeline({
                       <td className="py-3 px-4 text-[#A38D6D] font-bold uppercase text-[10px]">
                         {log.action}
                       </td>
-                      <td className="py-3 px-4 text-gray-400">
-                        {log.ipAddress}
-                      </td>
                       <td className="py-3 px-4 text-gray-600 font-sans leading-relaxed min-w-[200px]">
                         {log.details}
+                        {log._source === 'local' && (
+                          <span className="ml-2 text-[8px] font-mono uppercase text-gray-400 border border-gray-200 rounded px-1 py-0.5">
+                            только сессия
+                          </span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center whitespace-nowrap">
                         <span className={`text-[8px] uppercase tracking-wider px-2 py-0.5 rounded border font-bold ${getLogStatusStyle(log.status)}`}>
@@ -217,7 +235,7 @@ export default function ActivitiesTimeline({
                   ))}
                   {getFilteredLogs().length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-gray-400 italic">
+                      <td colSpan={5} className="py-8 text-center text-gray-400 italic">
                         Записи журнала аудита по заданным фильтрам не найдены.
                       </td>
                     </tr>

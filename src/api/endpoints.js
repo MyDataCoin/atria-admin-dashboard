@@ -193,10 +193,15 @@ export const publications = {
 
 // ---- Admin audit ----------------------------------------------------------
 
+// Admin/Compliance only. Entries are written server-side inside the commands they
+// describe — the dashboard only reads them, never appends. Append-only and immutable.
+// Returns a paged result: { items, page, pageSize, totalCount, totalPages }, newest first.
 export const audit = {
-  // Admin/Compliance only. Both filters optional.
-  query: ({ entityType, entityId } = {}) =>
-    request('/audit', { query: { entityType, entityId } }),
+  // All filters optional. severity: 'success' | 'warning' | 'alert'.
+  query: ({ entityType, entityId, eventType, severity, page, pageSize } = {}) =>
+    request('/audit', {
+      query: { entityType, entityId, eventType, severity, page, pageSize },
+    }),
 };
 
 // ---- Admin: investor/user registry ----------------------------------------

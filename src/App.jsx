@@ -6,6 +6,7 @@ import {
   mapPlacementFromProperty,
   mapTicketFromApi,
   mapPublicationFromApi,
+  mapAuditLogFromApi,
 } from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -76,6 +77,8 @@ export default function App() {
   const [publicationsLoading, setPublicationsLoading] = useState(false);
   const [publicationsError, setPublicationsError] = useState('');
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState('');
   const [tickets, setTickets] = useState(INITIAL_TICKETS);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState('');
@@ -171,18 +174,50 @@ export default function App() {
     loadPublications();
   }, [loadPublications]);
 
-  // Helper function to append a live log to the immutable audit logs
-  const handleAddAuditLog = (action, details, level = 'SUCCESS') => {
-    const newLog = {
-      id: `audit-live-${Date.now()}`,
-      timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-      adminName: currentUser ? currentUser.name : 'Система комплаенса',
-      action: action,
-      details: details,
-      status: level,
-      ipAddress: '194.230.14.82' // standard Zug proxy IP
-    };
-    setAuditLogs((prev) => [newLog, ...prev]);
+  // Load the audit trail. Entries are written server-side inside the commands they
+  // describe (property created/updated/published/announced, publication posted, ticket
+  // opened/closed) — the dashboard never appends to it. Needs an Admin JWT; on failure
+  // we keep the demo entries and surface the reason in a banner.
+  const loadAuditLogs = React.useCallback(() => {
+    setAuditLoading(true);
+    return api.audit
+      .query({ pageSize: 200 })
+      .then((res) => {
+        const rows = Array.isArray(res) ? res : res?.items || [];
+        setAuditLogs(rows.map(mapAuditLogFromApi));
+        setAuditError('');
+      })
+      .catch((err) => {
+        setAuditError(err?.message || 'Журнал аудита недоступен');
+      })
+      .finally(() => setAuditLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (tokenStore.isAuthenticated) loadAuditLogs();
+  }, [loadAuditLogs]);
+
+  // Called by sections after a successful action. The backend records the real audit
+  // entry itself, so this just re-reads the trail instead of fabricating a client-side
+  // row. Actions the backend does not log (e.g. sign-out) pass local: true to keep a
+  // session-only row visible; those are clearly marked as not being server records.
+  const handleAddAuditLog = (action, details, level = 'SUCCESS', { local = false } = {}) => {
+    if (!local && tokenStore.isAuthenticated) {
+      loadAuditLogs();
+      return;
+    }
+    setAuditLogs((prev) => [
+      {
+        id: `audit-local-${Date.now()}`,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        adminName: currentUser ? currentUser.name : 'Система',
+        action,
+        details,
+        status: level,
+        _source: 'local',
+      },
+      ...prev,
+    ]);
   };
 
   // Login handler — real admin login (POST /auth/admin/login). Tokens are persisted in
@@ -199,16 +234,7 @@ export default function App() {
       // Load protected data now that we're authenticated.
       loadInvestors();
       loadTickets();
-      const newLog = {
-        id: `audit-login-${Date.now()}`,
-        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-        adminName: user.name,
-        action: 'Administrator Auth',
-        details: `Успешный вход в систему администратора. Сессия открыта.`,
-        status: 'SUCCESS',
-        ipAddress: '194.230.14.82'
-      };
-      setAuditLogs((prev) => [newLog, ...prev]);
+      loadAuditLogs();
     } catch (err) {
       setLoginError(
         err?.status === 401 || err?.status === 400
@@ -222,7 +248,13 @@ export default function App() {
 
   // Logout handler
   const handleLogout = () => {
-    handleAddAuditLog('Administrator Signout', 'Администратор завершил сессию и вышел из системы.');
+    // Not a server-recorded event, and the token is about to be cleared — keep it local.
+    handleAddAuditLog(
+      'Administrator Signout',
+      'Администратор завершил сессию и вышел из системы.',
+      'SUCCESS',
+      { local: true }
+    );
     api.auth.logout(); // clears tokens from localStorage
     setCurrentUser(null);
     setLoginUser('');
@@ -357,11 +389,13 @@ export default function App() {
         );
       case 'audit_log':
         return (
-          <ActivitiesTimeline 
+          <ActivitiesTimeline
             activities={auditLogs}
-            setActivities={setAuditLogs}
             admins={admins}
             setAdmins={setAdmins}
+            loading={auditLoading}
+            error={auditError}
+            onRefresh={loadAuditLogs}
             onAddLog={handleAddAuditLog}
           />
         );
