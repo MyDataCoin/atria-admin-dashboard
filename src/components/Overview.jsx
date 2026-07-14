@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
-import { 
-  Building, 
-  Coins, 
-  Users, 
-  Wallet, 
-  ArrowUpRight, 
-  Send, 
-  ShieldCheck, 
-  Plus, 
+import {
+  Building,
+  Coins,
+  Users,
+  Wallet,
+  Send,
   Activity,
   CheckCircle,
   FileCheck
@@ -30,10 +27,6 @@ export default function Overview({
   const [notifyContent, setNotifyContent] = useState('');
   const [notifySuccess, setNotifySuccess] = useState(false);
 
-  const [showQuickAudit, setShowQuickAudit] = useState(false);
-  const [auditWallet, setAuditWallet] = useState('');
-  const [auditResult, setAuditResult] = useState(null);
-
   const handleSendNotification = (e) => {
     e.preventDefault();
     if (!notifyTitle || !notifyContent) return;
@@ -50,42 +43,6 @@ export default function Overview({
       setNotifyTitle('');
       setNotifyContent('');
     }, 2500);
-  };
-
-  const handleRunKYCAudit = (e) => {
-    e.preventDefault();
-    if (!auditWallet) return;
-
-    // Simulate smart contract and sanction lookup
-    const isPEP = auditWallet.toLowerCase().includes('pep') || auditWallet.startsWith('0x8823');
-    const isSanctioned = auditWallet.toLowerCase().includes('sdn') || auditWallet.startsWith('0xf8e') || auditWallet.startsWith('0x8823');
-    
-    let score = 'Passed';
-    let msg = 'Кошелек успешно прошел проверку. Подозрительной активности в смарт-контрактах RWA не обнаружено.';
-    let level = 'green';
-
-    if (isSanctioned) {
-      score = 'Sanction Blocked';
-      msg = 'ВНИМАНИЕ: Адрес совпал со списком SDN OFAC / Секторальными санкциями SECO Switzerland!';
-      level = 'red';
-    } else if (isPEP) {
-      score = 'PEP Flagged';
-      msg = 'ВНИМАНИЕ: Адрес классифицирован как кошелек Политически Значимого Лица (PEP) или родственников первой линии.';
-      level = 'yellow';
-    }
-
-    setAuditResult({
-      wallet: auditWallet,
-      score,
-      msg,
-      level,
-      date: new Date().toLocaleString('ru-RU')
-    });
-
-    onAddLog(
-      'KYC/AML Wallet Audit Run',
-      `Проведен скрининг адреса ${auditWallet.substring(0, 10)}... Результат: ${score}`
-    );
   };
 
   const dashboardCards = [
@@ -163,14 +120,6 @@ export default function Overview({
           >
             <Send size={11} />
             <span>Уведомить инвесторов</span>
-          </button>
-          
-          <button
-            onClick={() => setShowQuickAudit(true)}
-            className="flex items-center gap-1.5 cursor-pointer bg-white border border-gray-200 hover:border-[#A38D6D] text-gray-800 hover:text-[#A38D6D] px-3.5 py-2 rounded text-[10px] uppercase font-bold tracking-widest transition-all"
-          >
-            <ShieldCheck size={11} />
-            <span>Экспресс AML-скрининг</span>
           </button>
         </div>
       </div>
@@ -284,95 +233,6 @@ export default function Overview({
                   </div>
                 </form>
               )}
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* AML Express Audit Modal */}
-      <AnimatePresence>
-        {showQuickAudit && (
-          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white border border-gray-200 shadow-xl max-w-lg w-full p-6 text-left relative rounded-sm"
-            >
-              <div className="border-b border-gray-150 pb-3 mb-4 flex justify-between items-start">
-                <div>
-                  <span className="text-[8px] uppercase tracking-widest text-rose-700 font-bold block">Комплаенс и Санкции</span>
-                  <h3 className="text-lg font-serif font-bold text-gray-900 mt-0.5 font-sans">Экспресс-проверка адреса AML/PEP</h3>
-                </div>
-                <button 
-                  onClick={() => { setShowQuickAudit(false); setAuditResult(null); setAuditWallet(''); }}
-                  className="text-gray-400 hover:text-gray-600 font-bold text-xs"
-                >
-                  Закрыть
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Быстрый скрининг криптокошельков на принадлежность к санкционным спискам (OFAC, SECO, EU, UN) и PEP-базам.
-                </p>
-
-                <form onSubmit={handleRunKYCAudit} className="space-y-3">
-                  <div className="flex gap-2">
-                    <input 
-                      type="text"
-                      required
-                      placeholder="Вставьте HEX-адрес кошелька (0x...) или имя"
-                      value={auditWallet}
-                      onChange={(e) => setAuditWallet(e.target.value)}
-                      className="flex-1 text-xs p-2.5 border border-gray-200 rounded font-mono bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
-                    />
-                    <button
-                      type="submit"
-                      className="bg-[#111111] hover:bg-[#A38D6D] text-white text-[10px] uppercase font-bold tracking-widest px-4 py-2.5 rounded transition-all cursor-pointer"
-                    >
-                      Проверить
-                    </button>
-                  </div>
-                  <div className="flex gap-4 text-[9px] text-gray-400 font-mono">
-                    <span className="cursor-pointer underline" onClick={() => setAuditWallet('0x8823FB819DC2C182A9C0E3A20B19A2D0E8B19B27')}>Пример PEP (Амаль)</span>
-                    <span className="cursor-pointer underline" onClick={() => setAuditWallet('0xf8E12A109D439CE230D8D902B3019A82C0E1B098')}>Пример Санкций (SDN)</span>
-                    <span className="cursor-pointer underline" onClick={() => setAuditWallet('0x7F2C9A3F3B4E1D8B8D2A4F6E6B1c2D3e4F5a6B7c')}>Чистый адрес (Жан-Пьер)</span>
-                  </div>
-                </form>
-
-                {auditResult && (
-                  <div className={`p-4 border rounded ${
-                    auditResult.level === 'green' ? 'bg-emerald-50 border-emerald-200' :
-                    auditResult.level === 'yellow' ? 'bg-amber-50 border-amber-200' :
-                    'bg-rose-50 border-rose-200'
-                  }`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-bold font-mono tracking-wider truncate max-w-[250px]">
-                        Адрес: {auditResult.wallet}
-                      </span>
-                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                        auditResult.level === 'green' ? 'bg-emerald-100 text-emerald-800' :
-                        auditResult.level === 'yellow' ? 'bg-amber-100 text-amber-800' :
-                        'bg-rose-100 text-rose-800'
-                      }`}>
-                        {auditResult.score}
-                      </span>
-                    </div>
-                    <p className={`text-xs ${
-                      auditResult.level === 'green' ? 'text-emerald-900' :
-                      auditResult.level === 'yellow' ? 'text-amber-900' :
-                      'text-rose-900'
-                    } leading-relaxed font-semibold`}>
-                      {auditResult.msg}
-                    </p>
-                    <div className="mt-3 pt-2 border-t border-black/5 text-[8px] text-gray-400 font-mono flex justify-between">
-                      <span>База данных: Refinitiv World-Check / Chainalysis API</span>
-                      <span>Дата: {auditResult.date}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
             </motion.div>
           </div>
         )}
@@ -519,45 +379,17 @@ export default function Overview({
 
       {/* Low-Priority State Indicators - Compliance reassurance block */}
       <section className="bg-[#111111] text-white p-6 rounded-sm text-left">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={14} className="text-[#A38D6D]" />
-              <span className="text-[9px] tracking-wider font-mono uppercase text-[#A38D6D] font-bold">
-                СМАРТ-КОНТРАКТЫ И ГАРАНТИИ
-              </span>
-            </div>
-            <h4 className="text-sm font-serif text-white font-medium">Белый список (Whitelist) и Эмиссия</h4>
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Все криптоадреса покупателей автоматически верифицируются через API-интеграцию с провайдерами KYC. Незарегистрированные кошельки блокируются на уровне смарт-контракта Ethereum/Arbitrum.
-            </p>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Activity size={14} className="text-[#A38D6D]" />
+            <span className="text-[9px] tracking-wider font-mono uppercase text-[#A38D6D] font-bold">
+              БЕЗУПРЕЧНЫЙ ЛОГ АУДИТА
+            </span>
           </div>
-
-          <div className="space-y-1 md:border-l md:border-white/10 md:pl-6">
-            <div className="flex items-center gap-2">
-              <Building size={14} className="text-[#A38D6D]" />
-              <span className="text-[9px] tracking-wider font-mono uppercase text-[#A38D6D] font-bold">
-                ЗАЛОГОВОЕ ОБЕСПЕЧЕНИЕ
-              </span>
-            </div>
-            <h4 className="text-sm font-serif text-white font-medium">Администрирование залога</h4>
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Выпуски токенизированных долей имеют 100% залоговое покрытие реальным имуществом, зафиксированное в Кадастровой палате под управлением независимого попечителя (Pledge Trustee).
-            </p>
-          </div>
-
-          <div className="space-y-1 md:border-l md:border-white/10 md:pl-6">
-            <div className="flex items-center gap-2">
-              <Activity size={14} className="text-[#A38D6D]" />
-              <span className="text-[9px] tracking-wider font-mono uppercase text-[#A38D6D] font-bold">
-                БЕЗУПРЕЧНЫЙ ЛОГ АУДИТА
-              </span>
-            </div>
-            <h4 className="text-sm font-serif text-white font-medium">Защита от изменений</h4>
-            <p className="text-[10px] text-gray-400 leading-relaxed">
-              Действия администраторов логируются в локальный неизменяемый журнал (Audit Log), дублирующийся на выделенный сервер соответствия стандартам финансового контроля.
-            </p>
-          </div>
+          <h4 className="text-sm font-serif text-white font-medium">Защита от изменений</h4>
+          <p className="text-[10px] text-gray-400 leading-relaxed max-w-3xl">
+            Действия администраторов логируются в локальный неизменяемый журнал (Audit Log), дублирующийся на выделенный сервер соответствия стандартам финансового контроля.
+          </p>
         </div>
       </section>
 

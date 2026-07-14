@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Newspaper, Send, Building2, X } from 'lucide-react';
+import api from '../api';
+import { mapPublicationToCreateRequest, mapPublicationFromApi } from '../api/mappers';
 
 const PUB_TYPES = [
   { value: 'Financial Report', label: 'Финансовый отчёт' },
@@ -10,7 +12,15 @@ const PUB_TYPES = [
 
 const typeLabel = (v) => PUB_TYPES.find((t) => t.value === v)?.label || v;
 
-export default function NewsAndReports({ publications, setPublications, properties, onAddLog }) {
+export default function NewsAndReports({
+  publications,
+  setPublications,
+  properties,
+  loading,
+  error,
+  onRefresh,
+  onAddLog,
+}) {
   // Publications can only be written about *active* (open) objects.
   const activeProps = properties.filter((p) => p.status === 'active');
 
@@ -19,37 +29,54 @@ export default function NewsAndReports({ publications, setPublications, properti
   const [title, setTitle] = useState('');
   const [summary, setSummary] = useState('');
   const [success, setSuccess] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
 
   const [filterProp, setFilterProp] = useState('all');
   const [selectedPub, setSelectedPub] = useState(null);
 
-  const handlePublish = (e) => {
+  // POST /publications. The backend fans out the investor notifications itself, so the
+  // dashboard only publishes — it never pushes to investors directly.
+  const handlePublish = async (e) => {
     e.preventDefault();
-    if (!title.trim() || !summary.trim()) return;
+    if (!title.trim() || !summary.trim() || publishing) return;
     // Property is optional — publications can be general (not tied to an object).
     const prop = activeProps.find((p) => p.id === propertyId) || null;
 
-    const newPub = {
-      id: `pub-${Date.now()}`,
-      title: title.trim(),
-      date: new Date().toISOString().split('T')[0],
-      propertyId: prop ? prop.id : null,
-      propertyName: prop ? prop.name : null,
-      type,
-      summary: summary.trim(),
-      status: 'Published',
-    };
-    setPublications([newPub, ...publications]);
-    onAddLog(
-      'News/Report Published',
-      prop
-        ? `Опубликовано «${newPub.title}» (${typeLabel(type)}) по активу "${prop.name}".`
-        : `Опубликовано «${newPub.title}» (${typeLabel(type)}) — общая публикация.`
-    );
-    setTitle('');
-    setSummary('');
-    setSuccess(true);
-    setTimeout(() => setSuccess(false), 2000);
+    setPublishing(true);
+    setPublishError('');
+    try {
+      const created = await api.publications.create(
+        mapPublicationToCreateRequest({ type, title, summary, propertyId })
+      );
+      setPublications([mapPublicationFromApi(created), ...publications]);
+      onAddLog(
+        'News/Report Published',
+        prop
+          ? `Опубликовано «${title.trim()}» (${typeLabel(type)}) по активу "${prop.name}".`
+          : `Опубликовано «${title.trim()}» (${typeLabel(type)}) — общая публикация.`
+      );
+      setTitle('');
+      setSummary('');
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2000);
+    } catch (err) {
+      setPublishError(err?.message || 'Не удалось опубликовать. Публикация не отправлена инвесторам.');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleDelete = async (pub) => {
+    if (!window.confirm(`Снять публикацию «${pub.title}»? Инвесторы перестанут её видеть.`)) return;
+    try {
+      await api.publications.remove(pub.id);
+      setPublications(publications.filter((p) => p.id !== pub.id));
+      setSelectedPub(null);
+      onAddLog('News/Report Removed', `Публикация «${pub.title}» снята с ленты.`);
+    } catch (err) {
+      setPublishError(err?.message || 'Не удалось снять публикацию');
+    }
   };
 
   const list = filterProp === 'all'
@@ -68,6 +95,18 @@ export default function NewsAndReports({ publications, setPublications, properti
         <h2 className="text-xl font-serif font-bold text-gray-900">Финотчёты & Новости по объектам</h2>
       </div>
 
+      {loading && (
+        <div className="flex items-center gap-2 text-[11px] font-mono text-gray-500">
+          <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+          Загрузка ленты публикаций…
+        </div>
+      )}
+      {!loading && error && (
+        <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+          ⚠ Лента недоступна — показаны демо-данные. {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left: publish form */}
         <div className="lg:col-span-5 bg-white border border-gray-100 rounded-sm shadow-xs p-5 space-y-4">
@@ -79,7 +118,14 @@ export default function NewsAndReports({ publications, setPublications, properti
           {(
             <form onSubmit={handlePublish} className="space-y-4 text-xs">
               {success && (
-                <p className="text-[10px] font-mono font-bold text-emerald-600">✓ Публикация добавлена!</p>
+                <p className="text-[10px] font-mono font-bold text-emerald-600">
+                  ✓ Опубликовано — инвесторы получат уведомление
+                </p>
+              )}
+              {publishError && (
+                <p className="text-[10px] font-mono font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded px-2.5 py-2">
+                  {publishError}
+                </p>
               )}
 
               {/* Active object */}
@@ -147,10 +193,11 @@ export default function NewsAndReports({ publications, setPublications, properti
 
               <button
                 type="submit"
-                className="w-full flex items-center justify-center gap-2 bg-[#111111] hover:bg-[#A38D6D] text-white py-2.5 rounded-sm text-[10px] font-mono uppercase tracking-widest font-bold transition-all cursor-pointer"
+                disabled={publishing}
+                className="w-full flex items-center justify-center gap-2 bg-[#111111] hover:bg-[#A38D6D] disabled:opacity-50 disabled:cursor-not-allowed text-white py-2.5 rounded-sm text-[10px] font-mono uppercase tracking-widest font-bold transition-all cursor-pointer"
               >
                 <Send size={13} />
-                <span>Опубликовать</span>
+                <span>{publishing ? 'Публикуем…' : 'Опубликовать'}</span>
               </button>
             </form>
           )}
@@ -159,7 +206,19 @@ export default function NewsAndReports({ publications, setPublications, properti
         {/* Right: feed */}
         <div className="lg:col-span-7 bg-white border border-gray-100 rounded-sm shadow-xs flex flex-col">
           <div className="p-4 border-b border-gray-100 bg-[#FAF9F5]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <h3 className="text-sm font-serif font-bold text-gray-900">Лента публикаций</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="text-sm font-serif font-bold text-gray-900">Лента публикаций</h3>
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  disabled={loading}
+                  className="text-[9px] font-mono uppercase tracking-wider font-bold text-gray-400 hover:text-[#A38D6D] disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  Обновить
+                </button>
+              )}
+            </div>
             <select
               value={filterProp}
               onChange={(e) => setFilterProp(e.target.value)}
@@ -246,10 +305,19 @@ export default function NewsAndReports({ publications, setPublications, properti
               <p className="text-gray-700 text-sm leading-relaxed whitespace-pre-wrap">{selectedPub.summary}</p>
             </div>
 
-            <div className="p-5 border-t border-gray-100">
+            <div className="p-5 border-t border-gray-100 flex items-center justify-between gap-4">
               <span className="text-[8px] text-gray-400 font-mono">
-                Дата: {selectedPub.date} • Статус: PUBLISHED
+                Дата: {selectedPub.date} • Статус: {selectedPub.status === 'Draft' ? 'DRAFT' : 'PUBLISHED'}
               </span>
+              {selectedPub._source === 'api' && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(selectedPub)}
+                  className="text-[9px] font-mono uppercase tracking-wider font-bold text-rose-700 hover:text-rose-900 transition-colors cursor-pointer shrink-0"
+                >
+                  Снять с публикации
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api, { decodeJwt, tokenStore } from './api';
-import { mapPropertyFromApi, mapInvestorFromApi, mapPlacementFromProperty, mapTicketFromApi } from './api/mappers';
+import {
+  mapPropertyFromApi,
+  mapInvestorFromApi,
+  mapPlacementFromProperty,
+  mapTicketFromApi,
+  mapPublicationFromApi,
+} from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Overview from './components/Overview';
@@ -67,6 +73,8 @@ export default function App() {
   const [payouts, setPayouts] = useState(INITIAL_PAYOUTS);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
   const [publications, setPublications] = useState(INITIAL_NEWS_PUBLICATIONS);
+  const [publicationsLoading, setPublicationsLoading] = useState(false);
+  const [publicationsError, setPublicationsError] = useState('');
   const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
   const [tickets, setTickets] = useState(INITIAL_TICKETS);
   const [ticketsLoading, setTicketsLoading] = useState(false);
@@ -138,6 +146,30 @@ export default function App() {
   useEffect(() => {
     if (tokenStore.isAuthenticated) loadTickets();
   }, [loadTickets]);
+
+  // Load the publication feed (financial reports & news). Same route the investor app
+  // reads — role-scoped server-side, so the admin token also surfaces drafts. On failure
+  // we keep the demo publications so the section never renders empty.
+  const loadPublications = React.useCallback(() => {
+    setPublicationsLoading(true);
+    // Paged route (default pageSize 20); take the max page so the feed isn't silently
+    // truncated. Real pagination can come later if the archive outgrows one page.
+    return api.publications
+      .list({ pageSize: 100 })
+      .then((list) => {
+        const rows = Array.isArray(list) ? list : list?.items || [];
+        setPublications(rows.map(mapPublicationFromApi));
+        setPublicationsError('');
+      })
+      .catch((err) => {
+        setPublicationsError(err?.message || 'Лента публикаций недоступна');
+      })
+      .finally(() => setPublicationsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadPublications();
+  }, [loadPublications]);
 
   // Helper function to append a live log to the immutable audit logs
   const handleAddAuditLog = (action, details, level = 'SUCCESS') => {
@@ -240,8 +272,6 @@ export default function App() {
               onRefreshProperties={loadProperties}
               documents={documents}
               setDocuments={setDocuments}
-              publications={publications}
-              setPublications={setPublications}
               investors={investors}
               currency={currency}
               onAddLog={handleAddAuditLog}
@@ -254,6 +284,9 @@ export default function App() {
             publications={publications}
             setPublications={setPublications}
             properties={properties}
+            loading={publicationsLoading}
+            error={publicationsError}
+            onRefresh={loadPublications}
             onAddLog={handleAddAuditLog}
           />
         );

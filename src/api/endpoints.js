@@ -170,6 +170,27 @@ export const support = {
   reopen: (id) => request(`/support/tickets/${id}/reopen`, { method: 'POST' }),
 };
 
+// ---- Publications (investor news feed & financial reports) ----------------
+// One entity, one route, scoped by role on the backend: Admin sees drafts too,
+// investors/anonymous see only status=published. Ordered publishedAtUtc DESC.
+// `propertyId` is nullable — a publication with none is a general platform news item.
+
+export const publications = {
+  // Filters are optional. `generalOnly: true` returns only object-less (general) items.
+  // Returns a paged result: { items, page, pageSize, totalCount, totalPages }.
+  list: ({ propertyId, generalOnly, type, page, pageSize } = {}) =>
+    request('/publications', {
+      query: { propertyId, generalOnly: generalOnly ? 'true' : undefined, type, page, pageSize },
+    }),
+  get: (id) => request(`/publications/${id}`),
+  // Admin only. body: { type, title, body, propertyId? }. Creating one also fans out
+  // notifications to investors server-side — the dashboard must not do that itself.
+  create: (body) => request('/publications', { method: 'POST', body }),
+  // Admin only. Partial edit: { title?, body?, type? }
+  update: (id, body) => request(`/publications/${id}`, { method: 'PATCH', body }),
+  remove: (id) => request(`/publications/${id}`, { method: 'DELETE' }),
+};
+
 // ---- Admin audit ----------------------------------------------------------
 
 export const audit = {
@@ -188,4 +209,16 @@ export const admin = {
   propertyInvestments: (propertyId) => request(`/properties/${propertyId}/investments`),
 };
 
-export default { auth, properties, investments, kyc, consent, documents, notifications, support, audit, admin };
+export default {
+  auth,
+  properties,
+  investments,
+  kyc,
+  consent,
+  documents,
+  notifications,
+  publications,
+  support,
+  audit,
+  admin,
+};

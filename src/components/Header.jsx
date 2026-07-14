@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, ShieldAlert, Clock, Info } from 'lucide-react';
+import { Menu, Clock, Info } from 'lucide-react';
 
 export default function Header({ 
   onMenuToggle, 
@@ -81,19 +81,6 @@ export default function Header({
           </span>
           <span className="text-xs font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100">
             {activePlacementsCount} АКТИВНЫХ ВЫПУСКОВ
-          </span>
-        </div>
-
-        {/* Security / Whitelist Quick info */}
-        <div className="hidden lg:flex flex-col items-end border-l border-gray-100 pl-6 text-left">
-          <div className="flex items-center gap-1.5">
-            <ShieldAlert size={12} className="text-[#A38D6D]" />
-            <span className="text-[9px] uppercase tracking-wider text-gray-400 font-bold font-mono">
-              Безопасность
-            </span>
-          </div>
-          <span className="text-[10px] font-mono text-gray-700 font-semibold">
-            KYC Smart Whitelist
           </span>
         </div>
       </div>

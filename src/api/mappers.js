@@ -247,6 +247,58 @@ export function mapTicketFromApi(t) {
   };
 }
 
+// ---- Publications ---------------------------------------------------------
+// Backend enum (snake_case) <-> the labels the dashboard's PUB_TYPES use.
+
+const PUB_TYPE_FROM_API = {
+  financial_report: 'Financial Report',
+  news_release: 'News Release',
+  valuation_audit: 'Valuation Audit',
+  general_news: 'General News',
+};
+
+const PUB_TYPE_TO_API = Object.fromEntries(
+  Object.entries(PUB_TYPE_FROM_API).map(([api, ui]) => [ui, api])
+);
+
+export function mapPublicationTypeToApi(uiType) {
+  return PUB_TYPE_TO_API[uiType] || 'general_news';
+}
+
+/**
+ * PublicationDto -> dashboard publication.
+ * `propertyId` is null for general (object-less) news; the UI already renders those
+ * as "Общая публикация", so the null is passed through rather than defaulted.
+ */
+export function mapPublicationFromApi(p) {
+  return {
+    id: p.id,
+    title: p.title || '',
+    // The UI calls the message text `summary` and renders it whitespace-preserved.
+    summary: p.body || '',
+    // Feed cards show a plain date; publishedAtUtc is the sort key on the backend.
+    date: (p.publishedAtUtc || p.createdAtUtc || '').slice(0, 10),
+    propertyId: p.propertyId || null,
+    propertyName: p.propertyName || null,
+    type: PUB_TYPE_FROM_API[p.type] || p.type || 'General News',
+    status: p.status === 'draft' ? 'Draft' : 'Published',
+    _source: 'api',
+  };
+}
+
+/**
+ * Dashboard publish-form data -> CreatePublicationRequest.
+ * An empty propertyId means "general news" and must go over the wire as null.
+ */
+export function mapPublicationToCreateRequest({ type, title, summary, propertyId }) {
+  return {
+    type: mapPublicationTypeToApi(type),
+    title: title.trim(),
+    body: summary.trim(),
+    propertyId: propertyId || null,
+  };
+}
+
 /**
  * Dashboard create-form data -> CreatePropertyRequest (swagger).
  * Only the fields the backend accepts are sent.

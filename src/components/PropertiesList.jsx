@@ -95,8 +95,6 @@ export default function PropertiesList({
   onRefreshProperties,
   documents,
   setDocuments,
-  publications,
-  setPublications,
   investors,
   currency = 'USD',
   onAddLog
@@ -250,12 +248,6 @@ export default function PropertiesList({
     collateralStatus: 'Under review',
     blockchainNetwork: 'Ethereum (ERC-20/RWA)'
   });
-
-  // News publication form inside selected property panel
-  const [pubTitle, setPubTitle] = useState('');
-  const [pubType, setPubType] = useState('Financial Report');
-  const [pubSummary, setPubSummary] = useState('');
-  const [pubSuccess, setPubSuccess] = useState(false);
 
   // Document upload
   const [docTitle, setDocTitle] = useState('');
@@ -474,6 +466,30 @@ export default function PropertiesList({
     );
   };
 
+  // Upload newly attached photos to a property. Shared by create and edit: images are
+  // compressed to WebP, and the backend's optimistic concurrency on the property row can
+  // return 409 ("please retry") when adding an image, so retry a few times with backoff.
+  const uploadImages = async (propertyId, files) => {
+    for (const file of files) {
+      const compressed = await compressImage(file); // → WebP, light compression
+      const isWebp = compressed?.type === 'image/webp';
+      const base = (file.name || 'photo').replace(/\.[^.]+$/, '');
+      const name = base + (isWebp ? '.webp' : '');
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await api.properties.uploadImage(propertyId, compressed, name);
+          break;
+        } catch (err) {
+          if (err?.status === 409 && attempt < 3) {
+            await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+            continue;
+          }
+          throw err;
+        }
+      }
+    }
+  };
+
   const handleSaveForm = async (e) => {
     e.preventDefault();
     if (!formData.name) return;
@@ -486,26 +502,7 @@ export default function PropertiesList({
         const newId = await api.properties.create(mapPropertyToCreateRequest(formData));
 
         const files = (formData.imageFiles || []).slice(0, MAX_IMAGES);
-        for (const file of files) {
-          const compressed = await compressImage(file); // → WebP, light compression
-          const isWebp = compressed?.type === 'image/webp';
-          const base = (file.name || 'photo').replace(/\.[^.]+$/, '');
-          const name = base + (isWebp ? '.webp' : '');
-          // The backend uses optimistic concurrency on the property row and may return 409
-          // ("please retry") when adding an image. Retry a few times with a small backoff.
-          for (let attempt = 0; ; attempt++) {
-            try {
-              await api.properties.uploadImage(newId, compressed, name);
-              break;
-            } catch (err) {
-              if (err?.status === 409 && attempt < 3) {
-                await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
-                continue;
-              }
-              throw err;
-            }
-          }
-        }
+        await uploadImages(newId, files);
 
         // POST /properties always creates a draft; the create body carries no status. If the admin
         // picked "Скоро в продаже" in the form, persist that by announcing the new object
@@ -560,6 +557,8 @@ export default function PropertiesList({
     // EDIT.
     const original = properties.find(p => p.id === formData.id);
     const isApi = original?._source === 'api';
+    // Newly attached photos (File objects from the picker) — existing ones are plain URLs.
+    const newImageFiles = (formData.imageFiles || []).slice(0, MAX_IMAGES);
     // Newly attached document files (have a real File); preloaded docs don't and stay local.
     const newDocFiles = formDocs.filter(d => d.file);
     const localDocs = formDocs
@@ -575,11 +574,13 @@ export default function PropertiesList({
       setSaving(true);
       setSaveError('');
       try {
-        // 1) Upload newly attached documents to the backend.
+        // 1) Upload newly attached photos to the backend.
+        await uploadImages(formData.id, newImageFiles);
+        // 2) Upload newly attached documents to the backend.
         for (const d of newDocFiles) {
           await api.properties.uploadDocument(formData.id, d.file, d.file.name || d.title);
         }
-        // 2) Persist a status change via the lifecycle endpoints (forward-only, draft⇄coming_soon).
+        // 3) Persist a status change via the lifecycle endpoints (forward-only, draft⇄coming_soon).
         if (statusChanged) {
           if (to === 'coming_soon' && from === 'draft') {
             await api.properties.announce(formData.id);
@@ -601,6 +602,7 @@ export default function PropertiesList({
         onAddLog(
           'Property Asset Updated',
           `Объект "${formData.name}" сохранён на сервере` +
+            (newImageFiles.length ? `, фото загружено: ${newImageFiles.length}` : '') +
             (newDocFiles.length ? `, документов загружено: ${newDocFiles.length}` : '') +
             (statusChanged ? `, статус: «${STATUS_LABELS[to] || to}»` : '') + '.'
         );
@@ -609,9 +611,9 @@ export default function PropertiesList({
       } catch (err) {
         setSaveError(
           err?.status === 409
-            ? 'Объект не в подходящем статусе для этого перехода — обновите страницу и попробуйте снова.'
+            ? 'Конфликт на сервере (статус объекта или параллельное изменение) — обновите страницу и попробуйте снова.'
             : err?.status === 413
-              ? 'Файл слишком большой для сервера'
+              ? 'Файл слишком большой для сервера — уменьшите фото или поднимите лимит на бэке (nginx client_max_body_size)'
               : (err?.problem?.detail || err?.message || 'Не удалось сохранить изменения на сервере')
         );
       } finally {
@@ -707,34 +709,6 @@ export default function PropertiesList({
     }
     setDocuments(documents.filter(d => d.id !== doc.id));
     onAddLog('Document Removed', 'Администратор удалил файл из реестра объекта (локально).');
-  };
-
-  // Publish report/news simulation
-  const handlePublishNews = (e) => {
-    e.preventDefault();
-    if (!pubTitle || !pubSummary) return;
-
-    const newPub = {
-      id: `pub-add-${Date.now()}`,
-      title: pubTitle,
-      date: new Date().toISOString().split('T')[0],
-      propertyId: selectedProp.id,
-      propertyName: selectedProp.name,
-      type: pubType,
-      summary: pubSummary,
-      status: 'Published'
-    };
-
-    setPublications([newPub, ...publications]);
-    onAddLog(
-      'News/Report Published',
-      `Опубликован отчет "${pubTitle}" по активу "${selectedProp.name}".`
-    );
-
-    setPubSuccess(true);
-    setPubTitle('');
-    setPubSummary('');
-    setTimeout(() => setPubSuccess(false), 2000);
   };
 
   const getFilteredProperties = () => {
@@ -1561,8 +1535,16 @@ export default function PropertiesList({
                         <button
                           type="button"
                           onClick={() => {
+                            const files = formData.imageFiles || [];
+                            // `images` holds already-saved photos first, then previews of newly
+                            // picked ones; `imageFiles` only holds the new files. Map the clicked
+                            // image index into the file list so removing a saved photo doesn't
+                            // drop an unrelated pending upload.
+                            const firstNewIdx = formData.images.length - files.length;
+                            const fileIdx = idx - firstNewIdx;
                             const updatedImages = formData.images.filter((_, i) => i !== idx);
-                            const updatedFiles = (formData.imageFiles || []).filter((_, i) => i !== idx);
+                            const updatedFiles =
+                              fileIdx >= 0 ? files.filter((_, i) => i !== fileIdx) : files;
                             setFormData({
                               ...formData,
                               images: updatedImages,
