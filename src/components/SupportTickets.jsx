@@ -4,6 +4,7 @@ import {
   Search,
   Send,
   User,
+  Building,
   Plus,
   HelpCircle
 } from 'lucide-react';
@@ -30,6 +31,12 @@ const PRESETS = [
   }
 ];
 
+// Requester role label + icon: a ticket comes either from an investor or a realtor.
+const roleOf = (t) => (t?.requesterRole === 'realtor' ? 'realtor' : 'investor');
+const roleLabel = (t) => (roleOf(t) === 'realtor' ? 'Риелтор' : 'Инвестор');
+// Investor shows its name; realtor is shown just as "Риелтор" (no personal name).
+const requesterDisplay = (t) => (roleOf(t) === 'realtor' ? 'Риелтор' : t.investorName);
+
 export default function SupportTickets({
   tickets,
   setTickets,
@@ -46,6 +53,7 @@ export default function SupportTickets({
   // Create ticket state
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newSubject, setNewSubject] = useState('');
+  const [newRole, setNewRole] = useState('investor'); // investor | realtor
   const [newInvestorId, setNewInvestorId] = useState('');
   const [newCategory, setNewCategory] = useState('Технические вопросы');
   const [newPriority, setNewPriority] = useState('Medium');
@@ -144,7 +152,7 @@ export default function SupportTickets({
 
     onAddLog(
       'Support Reply Sent',
-      `Отправлен ответ инвестору "${selectedTicket.investorName}" по обращению #${selectedTicket.id} ("${selectedTicket.subject}").`
+      `Отправлен ответ ${roleOf(selectedTicket) === 'realtor' ? 'риелтору' : 'инвестору'} "${selectedTicket.investorName}" по обращению #${selectedTicket.id} ("${selectedTicket.subject}").`
     );
   };
 
@@ -215,17 +223,30 @@ export default function SupportTickets({
   // manual registration (phone/email intake) stays local-only until the backend exposes it.
   const handleCreateTicketSubmit = (e) => {
     e.preventDefault();
-    if (!newSubject || !newInvestorId || !newMessageText) return;
+    if (!newSubject || !newMessageText) return;
 
-    const investor = investors.find(i => i.id === newInvestorId);
-    if (!investor) return;
+    // Resolve the requester depending on the selected role.
+    let requesterId = null;
+    let requesterName = '';
+    let requesterEmail = '—';
+    if (newRole === 'realtor') {
+      // Realtors are anonymous — no personal name is collected or shown.
+      requesterName = 'Риелтор';
+    } else {
+      const investor = investors.find(i => i.id === newInvestorId);
+      if (!investor) return;
+      requesterId = investor.id;
+      requesterName = investor.name;
+      requesterEmail = investor.email;
+    }
 
     const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
     const newTkt = {
       id: `tkt-${tickets.length + 1}`,
-      investorId: investor.id,
-      investorName: investor.name,
-      investorEmail: investor.email,
+      requesterRole: newRole,
+      investorId: requesterId,
+      investorName: requesterName,
+      investorEmail: requesterEmail,
       subject: newSubject,
       category: newCategory,
       priority: newPriority,
@@ -236,7 +257,7 @@ export default function SupportTickets({
         {
           id: `msg-${Date.now()}`,
           sender: 'investor',
-          senderName: investor.name,
+          senderName: requesterName,
           timestamp: timestamp,
           text: newMessageText
         }
@@ -254,7 +275,7 @@ export default function SupportTickets({
 
     onAddLog(
       'Support Ticket Registered',
-      `Зарегистрировано новое обращение от инвестора "${investor.name}" на тему: "${newSubject}".`
+      `Зарегистрировано новое обращение от ${newRole === 'realtor' ? 'риелтора' : 'инвестора'} "${requesterName}" на тему: "${newSubject}".`
     );
   };
 
@@ -427,8 +448,20 @@ export default function SupportTickets({
                     <div className={`flex items-center gap-1.5 mt-1 text-[10px] font-medium ${
                       isUnread ? 'text-gray-700' : 'text-gray-500'
                     }`}>
-                      <User size={10} className="text-gray-400 shrink-0" />
-                      <span className="truncate">{t.investorName}</span>
+                      {roleOf(t) === 'realtor'
+                        ? <Building size={10} className="text-[#A38D6D] shrink-0" />
+                        : <User size={10} className="text-gray-400 shrink-0" />}
+                      <span className={`text-[8px] font-mono uppercase tracking-wider px-1 py-0.5 rounded shrink-0 ${
+                        roleOf(t) === 'realtor'
+                          ? 'bg-[#A38D6D]/10 text-[#A38D6D]'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}>
+                        {roleLabel(t)}
+                      </span>
+                      {/* Investor shows its name; realtor stays anonymous. */}
+                      {roleOf(t) === 'investor' && (
+                        <span className="truncate">{t.investorName}</span>
+                      )}
                     </div>
 
                     {lastMsg && (
@@ -468,9 +501,16 @@ export default function SupportTickets({
                       {selectedTicket.subject}
                     </h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 items-center mt-2 text-xs text-gray-500">
-                      <span className="flex items-center gap-1">
-                        <User size={12} className="text-gray-400" />
-                        <strong>{selectedTicket.investorName}</strong>
+                      <span className="flex items-center gap-1.5">
+                        {roleOf(selectedTicket) === 'realtor'
+                          ? <Building size={12} className="text-[#A38D6D]" />
+                          : <User size={12} className="text-gray-400" />}
+                        <strong>{requesterDisplay(selectedTicket)}</strong>
+                        {roleOf(selectedTicket) === 'investor' && (
+                          <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">
+                            {roleLabel(selectedTicket)}
+                          </span>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -510,14 +550,17 @@ export default function SupportTickets({
               <div className="flex-1 overflow-y-auto p-5 bg-gray-50/50 space-y-4">
                 {selectedTicket.messages.map((msg, index) => {
                   const isSupport = msg.sender === 'support';
+                  // Realtor requester messages stay anonymous — labelled just "Риелтор".
+                  const displayName =
+                    !isSupport && roleOf(selectedTicket) === 'realtor' ? 'Риелтор' : msg.senderName;
                   return (
-                    <div 
+                    <div
                       key={msg.id || index}
                       className={`flex flex-col max-w-[85%] ${isSupport ? 'ml-auto items-end' : 'mr-auto items-start'}`}
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <span className="text-[9px] font-bold text-gray-600 font-serif">
-                          {msg.senderName}
+                          {displayName}
                         </span>
                         <span className="text-[8px] font-mono text-gray-400">
                           {msg.timestamp}
@@ -605,24 +648,53 @@ export default function SupportTickets({
 
               <form onSubmit={handleCreateTicketSubmit} className="p-5 space-y-4 text-xs">
                 
-                {/* Investor dropdown selection */}
+                {/* Requester role toggle */}
                 <div className="space-y-1">
                   <label className="block text-[8px] font-mono uppercase tracking-wider text-gray-400 font-bold">
-                    Выберите Инвестора
+                    Кто обращается
                   </label>
-                  <select
-                    required
-                    value={newInvestorId}
-                    onChange={(e) => setNewInvestorId(e.target.value)}
-                    className="w-full p-2.5 border border-gray-200 bg-white focus:outline-none focus:border-[#A38D6D] rounded-sm text-gray-800"
-                  >
-                    {investors.map((inv) => (
-                      <option key={inv.id} value={inv.id}>
-                        {inv.name} ({inv.email}) — {inv.country}
-                      </option>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'investor', label: 'Инвестор', Icon: User },
+                      { value: 'realtor', label: 'Риелтор', Icon: Building },
+                    ].map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setNewRole(value)}
+                        className={`flex items-center justify-center gap-1.5 p-2.5 border rounded-sm text-[10px] font-mono uppercase tracking-wider transition-all cursor-pointer ${
+                          newRole === value
+                            ? 'border-[#A38D6D] bg-[#FAF8F3] text-[#A38D6D] font-bold'
+                            : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                        }`}
+                      >
+                        <Icon size={12} />
+                        {label}
+                      </button>
                     ))}
-                  </select>
+                  </div>
                 </div>
+
+                {/* Investor selection — realtors are anonymous, no name needed */}
+                {newRole === 'investor' && (
+                  <div className="space-y-1">
+                    <label className="block text-[8px] font-mono uppercase tracking-wider text-gray-400 font-bold">
+                      Выберите Инвестора
+                    </label>
+                    <select
+                      required
+                      value={newInvestorId}
+                      onChange={(e) => setNewInvestorId(e.target.value)}
+                      className="w-full p-2.5 border border-gray-200 bg-white focus:outline-none focus:border-[#A38D6D] rounded-sm text-gray-800"
+                    >
+                      {investors.map((inv) => (
+                        <option key={inv.id} value={inv.id}>
+                          {inv.name} ({inv.email}) — {inv.country}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">

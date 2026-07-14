@@ -217,14 +217,24 @@ export function mapTicketMessageFromApi(m, investorName = '') {
  * The backend is phone-only, so no email — the investor's full name stands in.
  */
 export function mapTicketFromApi(t) {
-  const investorName = t.investor?.fullName || 'Инвестор';
+  // A ticket may be opened by an investor or a realtor. The backend flags this via
+  // `requesterRole`/`authorRole` (or a `realtor` object); default to investor.
+  const rawRole = (t.requesterRole || t.authorRole || (t.realtor ? 'realtor' : 'investor'))
+    .toString()
+    .toLowerCase();
+  const requesterRole = rawRole === 'realtor' ? 'realtor' : 'investor';
+  const requesterName =
+    requesterRole === 'realtor'
+      ? t.realtor?.fullName || t.requesterName || 'Риелтор'
+      : t.investor?.fullName || t.requesterName || 'Инвестор';
   const messages = Array.isArray(t.messages)
-    ? t.messages.map((m) => mapTicketMessageFromApi(m, investorName))
+    ? t.messages.map((m) => mapTicketMessageFromApi(m, requesterName))
     : [];
   return {
     id: t.id,
-    investorId: t.investor?.id || null,
-    investorName,
+    requesterRole,
+    investorId: t.investor?.id || t.realtor?.id || null,
+    investorName: requesterName,
     investorEmail: '—', // phone-only backend; no email on tickets
     subject: t.subject || '',
     category: t.category || '',
