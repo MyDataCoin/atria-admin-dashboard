@@ -104,3 +104,52 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(20, 21, 24, 0.25);
 }
+
+/* Печать: на лист уходит только брошюра (раздел риелтора).
+   Без этого браузер печатал весь DOM (сайдбар, шапку, каталог под модалкой)
+   и брошюра расползалась на лишние страницы. */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  /* Прячем всё приложение... */
+  body * {
+    visibility: hidden;
+  }
+
+  /* ...и показываем только брошюру с её содержимым. */
+  #atria-printable-brochure,
+  #atria-printable-brochure * {
+    visibility: visible;
+  }
+
+  /* Вынимаем брошюру из модалки: на всю ширину листа, без скролла и обрезки. */
+  #atria-printable-brochure {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    height: auto;
+    max-height: none;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    box-shadow: none;
+    background: #fff;
+  }
+
+  /* Блоки брошюры не рвём между страницами. */
+  #atria-printable-brochure img,
+  #atria-printable-brochure section,
+  #atria-printable-brochure > div {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Печатаем фоны/цвета как на экране. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

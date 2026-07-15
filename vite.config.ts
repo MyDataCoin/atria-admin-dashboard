@@ -26,6 +26,14 @@ export default defineConfig(() => {
           changeOrigin: true,
           secure: true,
         },
+        // Media (property photos / documents) is served without CORS headers, so a
+        // browser can't read it into a canvas or fetch it for the realtor PDF brochure.
+        // Proxying keeps it same-origin in dev.
+        '/media': {
+          target: process.env.VITE_API_PROXY_TARGET || 'https://atria-api.eaysdev.online',
+          changeOrigin: true,
+          secure: true,
+        },
       },
     },
   };

@@ -18,6 +18,18 @@ export const auth = {
     return tokens;
   },
 
+  // Realtor login (username + password) -> access + refresh, both persisted. Same
+  // shape as adminLogin but a different endpoint; the role is carried in the JWT.
+  realtorLogin: async (username, password) => {
+    const tokens = await request('/auth/realtor/login', {
+      method: 'POST',
+      body: { username, password },
+      auth: false,
+    });
+    tokenStore.set(tokens);
+    return tokens;
+  },
+
   // Step 1: request an SMS OTP for the given phone (+996XXXXXXXXX). Returns 204.
   requestOtp: (phone) =>
     request('/auth/register/phone/request-otp', { method: 'POST', body: { phone }, auth: false }),

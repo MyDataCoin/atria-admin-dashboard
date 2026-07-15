@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import api, { decodeJwt, tokenStore } from './api';
+import api, { tokenStore } from './api';
 import {
   mapPropertyFromApi,
   mapInvestorFromApi,
@@ -34,34 +34,15 @@ import {
   INITIAL_TICKETS
 } from './data';
 
-import { Shield, Key, Eye, Lock } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Shield } from 'lucide-react';
 
-// Build the dashboard user object from a decoded JWT payload.
-function userFromToken(token) {
-  const p = token ? decodeJwt(token) : null;
-  if (!p) return null;
-  return {
-    id: p.sub,
-    name: p.email || p.role || 'Admin',
-    username: p.email || 'admin',
-    role: p.role,
-    avatar: p.role || 'ADMIN',
-  };
-}
-
-export default function App() {
-  // Auto-login from a token persisted in localStorage; auto-refresh keeps it alive.
-  const [currentUser, setCurrentUser] = useState(() => userFromToken(tokenStore.access));
+// Admin workspace. Authentication (login form, session, role routing) lives in the
+// root App shell; this component is only mounted once an admin is authenticated and
+// receives the current user + a logout callback as props.
+export default function AdminApp({ currentUser, onLogout }) {
   const [currentSection, setCurrentSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currency, setCurrency] = useState('KGS');
-
-  // Authorization Form State
-  const [loginUser, setLoginUser] = useState('');
-  const [loginPass, setLoginPass] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [loggingIn, setLoggingIn] = useState(false);
 
   // Fully reactive state for global portfolio stats & ledgers
   const [admins, setAdmins] = useState(INITIAL_ADMINS);
@@ -241,33 +222,8 @@ export default function App() {
     ]);
   };
 
-  // Login handler — real admin login (POST /auth/admin/login). Tokens are persisted in
-  // localStorage; the client auto-refreshes the access token so the session stays alive.
-  const handleLoginSubmit = async (e) => {
-    e.preventDefault();
-    setLoggingIn(true);
-    setLoginError('');
-    try {
-      const tokens = await api.auth.adminLogin(loginUser.trim(), loginPass);
-      const user = userFromToken(tokens.accessToken) || { name: loginUser, username: loginUser };
-      setCurrentUser(user);
-      setLoginPass('');
-      // Load protected data now that we're authenticated.
-      loadInvestors();
-      loadTickets();
-      loadAuditLogs();
-    } catch (err) {
-      setLoginError(
-        err?.status === 401 || err?.status === 400
-          ? 'Неверный логин или пароль.'
-          : (err?.message || 'Не удалось войти. Проверьте соединение с сервером.')
-      );
-    } finally {
-      setLoggingIn(false);
-    }
-  };
-
-  // Logout handler
+  // Logout handler — records a local audit row, then hands off to the root shell,
+  // which clears the session tokens and returns to the login form.
   const handleLogout = () => {
     // Not a server-recorded event, and the token is about to be cleared — keep it local.
     handleAddAuditLog(
@@ -276,11 +232,8 @@ export default function App() {
       'SUCCESS',
       { local: true }
     );
-    api.auth.logout(); // clears tokens from localStorage
-    setCurrentUser(null);
-    setLoginUser('');
-    setLoginPass('');
     setCurrentSection('dashboard');
+    onLogout();
   };
 
   // Section Routing rendering function
@@ -432,97 +385,6 @@ export default function App() {
         );
     }
   };
-
-  // Render Login UI if not authorized
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-[#111111] flex items-center justify-center p-4 paper-grain relative">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-neutral-900 via-[#111111] to-[#0a0a0a]" />
-        
-        <div className="bg-[#1A1A1A] border border-white/10 p-8 rounded-sm max-w-md w-full relative z-10 shadow-2xl text-left space-y-6">
-          
-          {/* Header branding logo */}
-          <div className="text-center space-y-2">
-            <div className="mx-auto w-12 h-12 flex items-center justify-center bg-white/5 border border-white/10 rounded-sm">
-              <svg viewBox="0 0 100 100" className="w-9 h-9" fill="none" stroke="#A38D6D" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M 24 44 L 50 18 L 76 44" strokeWidth="4.5" />
-                <path d="M 50 18 L 50 82" strokeWidth="4" />
-                <path d="M 36 82 L 36 50 A 14 14 0 0 1 64 50 L 64 82" strokeWidth="4" />
-                <line x1="20" y1="82" x2="80" y2="82" strokeWidth="4.5" />
-              </svg>
-            </div>
-            
-            <h1 className="font-serif text-2xl tracking-[0.25em] text-white uppercase font-bold mt-3">
-              ATRIA RWA
-            </h1>
-            <span className="text-[9px] uppercase tracking-widest text-[#A38D6D] font-bold font-mono block">
-              ПАНЕЛЬ ЭМИТЕНТА ATRIA RWA
-            </span>
-          </div>
-
-          {loginError && (
-            <div className="bg-rose-950/20 border border-rose-900/40 text-rose-300 text-[10px] p-3 rounded font-mono font-semibold">
-              {loginError}
-            </div>
-          )}
-
-          <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs">
-            <div className="space-y-1.5">
-              <label className="block text-[8px] tracking-widest uppercase font-bold text-gray-400 font-mono">
-                Имя пользователя (Логин)
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="например: admin"
-                value={loginUser}
-                onChange={(e) => setLoginUser(e.target.value)}
-                className="w-full p-3 bg-white/5 border border-white/10 focus:border-[#A38D6D] text-white focus:outline-none rounded font-mono"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-[8px] tracking-widest uppercase font-bold text-gray-400 font-mono">
-                Пароль администратора
-              </label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={loginPass}
-                onChange={(e) => setLoginPass(e.target.value)}
-                className="w-full p-3 bg-white/5 border border-white/10 focus:border-[#A38D6D] text-white focus:outline-none rounded font-mono"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loggingIn}
-              className="w-full py-3 bg-[#A38D6D] hover:bg-[#8e7b5e] text-white rounded font-mono text-[10px] uppercase font-bold tracking-widest transition-all cursor-pointer shadow-md disabled:opacity-60"
-            >
-              {loggingIn ? 'Вход…' : 'Авторизоваться'}
-            </button>
-          </form>
-
-          {/* Quick fill for the seeded admin account */}
-          <div className="border-t border-white/10 pt-4">
-            <button
-              type="button"
-              onClick={() => { setLoginUser('admin'); setLoginPass('admin'); }}
-              className="w-full bg-white/5 hover:bg-white/10 border border-white/5 text-[9px] text-gray-300 hover:text-white py-2 rounded transition-colors font-mono cursor-pointer"
-            >
-              Подставить admin / admin
-            </button>
-          </div>
-
-          <p className="text-[8px] text-center text-gray-600 font-mono">
-            Вход через POST /auth/admin/login. Сессия хранится в localStorage.
-          </p>
-
-        </div>
-      </div>
-    );
-  }
 
   // Render Authorized State workspace
   return (
