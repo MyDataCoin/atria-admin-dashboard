@@ -228,6 +228,10 @@ export const admin = {
   // token count, share % and invested amount. PROPOSED — backend must add
   // GET /users/{id}/investments (see BACKEND-INVESTOR-PORTFOLIO.md).
   investorPortfolio: (userId) => request(`/users/${userId}/investments`),
+  // Admin/Compliance. Realtor leaderboard: each realtor with their completed/total deal
+  // counts, for the dashboard ranking. PROPOSED — the existing /deals & /realtor routes
+  // are Realtor-only (403 for admin). See BACKEND-REALTOR-STATS.md.
+  realtorStats: () => request('/realtors/stats'),
 };
 
 export default {

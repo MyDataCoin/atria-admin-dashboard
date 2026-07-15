@@ -194,6 +194,21 @@ export function mapInvestorHoldingFromApi(dto) {
   };
 }
 
+/**
+ * Realtor leaderboard row (proposed GET /realtors/stats) -> dashboard realtor.
+ * `closedDeals` drives the ranking and tier; accepts a few likely field spellings.
+ */
+export function mapRealtorStatFromApi(dto) {
+  return {
+    id: dto.id || dto.userId || dto.realtorId,
+    fullName: dto.fullName || dto.name || 'Риелтор',
+    companyName: dto.companyName || dto.company || '',
+    closedDeals: dto.closedDeals ?? dto.completedDeals ?? dto.succeededDeals ?? 0,
+    totalDeals: dto.totalDeals ?? dto.dealsCount ?? null,
+    _source: 'api',
+  };
+}
+
 // Backend ticket status (open|pending|closed) -> dashboard status (Open|Answered|Resolved).
 // `open` = awaiting first support reply, `pending` = support answered / awaiting investor,
 // `closed` = resolved. Priority has no backend counterpart — defaulted to Medium.

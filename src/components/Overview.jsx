@@ -7,20 +7,44 @@ import {
   Send,
   Activity,
   CheckCircle,
-  FileCheck
+  TrendingUp,
+  TrendingDown,
+  Award,
+  Medal,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatVal } from '../utils';
 
-export default function Overview({ 
-  stats, 
-  properties, 
-  placements, 
-  payouts, 
+// Realtor tier from completed-deal count, relative to the leader:
+//   #1 (most completed) → Топ; some completed → Профессионал; none/very few → Новичок.
+function realtorTier(closedDeals, maxClosed) {
+  if (maxClosed > 0 && closedDeals === maxClosed) {
+    return { label: 'Топ', cls: 'bg-amber-50 text-amber-800 border-amber-200', Icon: Award };
+  }
+  if (closedDeals > 0) {
+    return { label: 'Профессионал', cls: 'bg-blue-50 text-blue-700 border-blue-200', Icon: Medal };
+  }
+  return { label: 'Новичок', cls: 'bg-gray-50 text-gray-500 border-gray-200', Icon: Sparkles };
+}
+
+export default function Overview({
+  stats,
+  properties,
+  placements,
+  payouts,
+  realtors = [],
+  realtorsLoading = false,
+  realtorsError = '',
   currency = 'USD',
   onNavigate,
   onAddLog
 }) {
+  const rankedRealtors = [...realtors].sort(
+    (a, b) => (b.closedDeals || 0) - (a.closedDeals || 0)
+  );
+  const maxClosed = rankedRealtors.reduce((m, r) => Math.max(m, r.closedDeals || 0), 0);
+
   const [showQuickNotify, setShowQuickNotify] = useState(false);
   const [notifyTitle, setNotifyTitle] = useState('');
   const [notifyGroup, setNotifyGroup] = useState('all');
@@ -86,18 +110,27 @@ export default function Overview({
     }
   ];
 
-  // Visual simulated chart data points
-  const points = [120, 180, 150, 290, 210, 310, 420];
-  const chartWidth = 500;
-  const chartHeight = 120;
-  // Calculate SVG line path
-  const svgPath = points.map((p, i) => {
-    const x = (i / (points.length - 1)) * chartWidth;
-    const y = chartHeight - (p / 450) * chartHeight;
-    return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-  }).join(' ');
+  // How well each property sells: share of its token supply already taken.
+  // sold = totalTokens − availableTokens; pct = sold / totalTokens.
+  // Only offerings still on sale — sold-out/closed ones (archived, 100% taken) are
+  // excluded: "how it sells" is only meaningful while it's actually being sold.
+  const salesRanking = properties
+    .filter((p) => p.status === 'active')
+    .map((p) => {
+      const total = p.totalTokens ?? 0;
+      const available = p.availableTokens ?? total;
+      const sold = Math.max(0, total - available);
+      const pct = total > 0 ? (sold / total) * 100 : 0;
+      return { id: p.id, name: p.name, city: p.city, sold, total, pct };
+    })
+    .sort((a, b) => b.pct - a.pct);
 
-  const svgArea = `${svgPath} L ${chartWidth} ${chartHeight} L 0 ${chartHeight} Z`;
+  const bestSellers = salesRanking.filter((p) => p.pct > 0).slice(0, 5);
+  // Worst = lowest sales among properties that are actually on sale (have supply).
+  const worstSellers = [...salesRanking]
+    .filter((p) => p.total > 0)
+    .sort((a, b) => a.pct - b.pct)
+    .slice(0, 5);
 
   return (
     <div className="space-y-8 font-sans">
@@ -243,82 +276,73 @@ export default function Overview({
       {/* Main Grid: Investment Trends & Fast placements summary */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* Left Column: Investment Growth Chart (Bento box 1) */}
-        <div className="bg-white border border-gray-100 rounded-sm p-6 shadow-xs text-left lg:col-span-7 flex flex-col justify-between">
-          <div>
-            <div className="flex justify-between items-center border-b border-gray-150 pb-3">
+        {/* Left Column: Property sales ranking */}
+        <div className="bg-white border border-gray-100 rounded-sm p-6 shadow-xs text-left lg:col-span-7 flex flex-col">
+          <div className="flex justify-between items-center border-b border-gray-150 pb-3">
+            <div>
+              <span className="text-[8px] uppercase tracking-widest text-[#A38D6D] font-bold block">Продажи по объектам</span>
+              <h3 className="text-base font-serif font-bold text-gray-900 mt-0.5">
+                Какая недвижимость продаётся лучше
+              </h3>
+            </div>
+            <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">% выкупленных долей</span>
+          </div>
+
+          {salesRanking.length === 0 ? (
+            <p className="text-xs text-gray-400 italic py-10 text-center">Нет объектов для анализа.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              {/* Best sellers */}
               <div>
-                <span className="text-[8px] uppercase tracking-widest text-[#A38D6D] font-bold block">Динамика притока средств</span>
-                <h3 className="text-base font-serif font-bold text-gray-900 mt-0.5">
-                  Тренды капитализации платформы
-                </h3>
+                <span className="text-[9px] uppercase tracking-wider text-emerald-700 font-bold font-mono flex items-center gap-1.5 mb-3">
+                  <TrendingUp size={12} /> Лидеры продаж
+                </span>
+                {bestSellers.length === 0 ? (
+                  <p className="text-[11px] text-gray-400 italic">Пока никто не продаёт активно.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {bestSellers.map((p) => (
+                      <div key={p.id}>
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-xs font-bold text-gray-900 truncate pr-2" title={p.name}>{p.name}</span>
+                          <span className="text-[11px] font-mono font-bold text-emerald-700 shrink-0">{p.pct.toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
+                          <div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(100, p.pct)}%` }} />
+                        </div>
+                        <span className="text-[8px] text-gray-400 font-mono mt-0.5 block">
+                          {p.sold.toLocaleString()} / {p.total.toLocaleString()} токенов
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <span className="text-xs font-semibold text-emerald-600 font-mono bg-emerald-50 px-2.5 py-1 rounded">
-                +14.2% Ср./мес
-              </span>
-            </div>
 
-            <p className="text-xs text-gray-500 mt-3">
-              Динамика привлечения средств в инвестиционные пулы оферт за последние 6 месяцев (в миллионах USD).
-            </p>
-
-            {/* Simulated Custom High Fidelity SVG Chart */}
-            <div className="mt-6 relative">
-              <svg 
-                viewBox={`0 0 ${chartWidth} ${chartHeight}`} 
-                className="w-full h-[150px] overflow-visible"
-              >
-                {/* Horizontal grid lines */}
-                <line x1="0" y1="20" x2={chartWidth} y2="20" stroke="#F1F1ED" strokeDasharray="4 4" />
-                <line x1="0" y1="60" x2={chartWidth} y2="60" stroke="#F1F1ED" strokeDasharray="4 4" />
-                <line x1="0" y1="100" x2={chartWidth} y2="100" stroke="#F1F1ED" strokeDasharray="4 4" />
-
-                {/* Fill area */}
-                <path d={svgArea} fill="url(#chartGrad)" opacity="0.15" />
-
-                {/* Stroke line path */}
-                <path d={svgPath} fill="none" stroke="#A38D6D" strokeWidth="2.5" />
-
-                {/* Data point circles */}
-                {points.map((p, i) => {
-                  const x = (i / (points.length - 1)) * chartWidth;
-                  const y = chartHeight - (p / 450) * chartHeight;
-                  return (
-                    <g key={i} className="group cursor-pointer">
-                      <circle cx={x} cy={y} r="4" fill="#A38D6D" />
-                      <circle cx={x} cy={y} r="8" fill="transparent" stroke="#A38D6D" strokeWidth="1" className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </g>
-                  );
-                })}
-
-                {/* Definitions */}
-                <defs>
-                  <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#A38D6D" />
-                    <stop offset="100%" stopColor="#FFFFFF" />
-                  </linearGradient>
-                </defs>
-              </svg>
-
-              {/* X Axis labels */}
-              <div className="flex justify-between text-[8px] text-gray-400 font-mono mt-3 uppercase tracking-wider">
-                <span>Январь ($1.2M)</span>
-                <span>Февраль ($1.8M)</span>
-                <span>Март ($1.5M)</span>
-                <span>Апрель ($2.9M)</span>
-                <span>Май ($2.1M)</span>
-                <span>Июнь ($3.1M)</span>
-                <span>Июль ($4.2M)</span>
+              {/* Worst sellers */}
+              <div>
+                <span className="text-[9px] uppercase tracking-wider text-rose-700 font-bold font-mono flex items-center gap-1.5 mb-3">
+                  <TrendingDown size={12} /> Продаётся хуже
+                </span>
+                <div className="space-y-3">
+                  {worstSellers.map((p) => (
+                    <div key={p.id}>
+                      <div className="flex justify-between items-baseline mb-1">
+                        <span className="text-xs font-bold text-gray-900 truncate pr-2" title={p.name}>{p.name}</span>
+                        <span className="text-[11px] font-mono font-bold text-gray-500 shrink-0">{p.pct.toFixed(1)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
+                        <div className="h-full bg-[#A38D6D] rounded" style={{ width: `${Math.min(100, Math.max(2, p.pct))}%` }} />
+                      </div>
+                      <span className="text-[8px] text-gray-400 font-mono mt-0.5 block">
+                        {p.sold.toLocaleString()} / {p.total.toLocaleString()} токенов
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-
-          <div className="pt-4 mt-4 border-t border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
-            <span className="flex items-center gap-1">
-              <FileCheck size={12} className="text-[#A38D6D]" />
-              Все данные защищены аудитом Ernst & Young
-            </span>
-          </div>
+          )}
         </div>
 
         {/* Right Column: Placements Summary (Bento box 2) */}
@@ -377,6 +401,68 @@ export default function Overview({
 
         </div>
 
+      </div>
+
+      {/* Realtor leaderboard */}
+      <div className="bg-white border border-gray-100 rounded-sm p-6 shadow-xs text-left">
+        <div className="flex justify-between items-center border-b border-gray-150 pb-3 mb-4">
+          <div>
+            <span className="text-[8px] uppercase tracking-widest text-[#A38D6D] font-bold block">Реферальная сеть</span>
+            <h3 className="text-base font-serif font-bold text-gray-900 mt-0.5">Статистика по риелторам</h3>
+          </div>
+          <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">Рейтинг по завершённым сделкам</span>
+        </div>
+
+        {realtorsLoading ? (
+          <div className="flex items-center gap-2 text-[11px] font-mono text-gray-400 py-6">
+            <span className="w-2 h-2 rounded-full bg-[#A38D6D] animate-pulse" />
+            Загрузка статистики риелторов…
+          </div>
+        ) : realtorsError ? (
+          <p className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+            ⚠ Статистика риелторов недоступна. {realtorsError}
+          </p>
+        ) : rankedRealtors.length === 0 ? (
+          <p className="text-xs text-gray-400 italic py-6 text-center">Пока нет данных по риелторам.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[9px] uppercase tracking-wider text-gray-400 font-bold font-mono border-b border-gray-100">
+                  <th className="py-2 px-3 text-left w-10">#</th>
+                  <th className="py-2 px-3 text-left">Риелтор</th>
+                  <th className="py-2 px-3 text-center">Завершённых сделок</th>
+                  <th className="py-2 px-3 text-center">Всего сделок</th>
+                  <th className="py-2 px-3 text-center">Статус</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {rankedRealtors.map((r, idx) => {
+                  const tier = realtorTier(r.closedDeals || 0, maxClosed);
+                  const TierIcon = tier.Icon;
+                  return (
+                    <tr key={r.id || idx} className="hover:bg-gray-50/50">
+                      <td className="py-3 px-3 font-mono font-bold text-gray-400">{idx + 1}</td>
+                      <td className="py-3 px-3">
+                        <span className="font-bold text-gray-900 font-serif block">{r.fullName || 'Риелтор'}</span>
+                        {r.companyName && (
+                          <span className="text-[9px] text-gray-400 font-mono">{r.companyName}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-center font-mono font-bold text-gray-900">{r.closedDeals || 0}</td>
+                      <td className="py-3 px-3 text-center font-mono text-gray-500">{r.totalDeals ?? '—'}</td>
+                      <td className="py-3 px-3 text-center">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase tracking-wider border ${tier.cls}`}>
+                          <TierIcon size={11} /> {tier.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Low-Priority State Indicators - Compliance reassurance block */}

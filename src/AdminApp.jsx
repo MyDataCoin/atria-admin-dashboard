@@ -4,6 +4,7 @@ import {
   mapPropertyFromApi,
   mapInvestorFromApi,
   mapInvestorHoldingFromApi,
+  mapRealtorStatFromApi,
   mapPlacementFromProperty,
   mapTicketFromApi,
   mapPublicationFromApi,
@@ -54,6 +55,9 @@ export default function AdminApp({ currentUser, onLogout }) {
   const [investors, setInvestors] = useState(INITIAL_INVESTORS);
   const [investorsLoading, setInvestorsLoading] = useState(false);
   const [investorsError, setInvestorsError] = useState('');
+  const [realtors, setRealtors] = useState([]);
+  const [realtorsLoading, setRealtorsLoading] = useState(false);
+  const [realtorsError, setRealtorsError] = useState('');
   const [payouts, setPayouts] = useState(INITIAL_PAYOUTS);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
   const [publications, setPublications] = useState(INITIAL_NEWS_PUBLICATIONS);
@@ -127,6 +131,29 @@ export default function AdminApp({ currentUser, onLogout }) {
   useEffect(() => {
     loadInvestors();
   }, [loadInvestors]);
+
+  // Load the realtor leaderboard for the dashboard. Needs an Admin JWT and a backend
+  // endpoint that doesn't exist yet (the /deals & /realtor routes are Realtor-only) —
+  // on any failure the dashboard block shows the reason instead of fake numbers.
+  const loadRealtors = React.useCallback(() => {
+    setRealtorsLoading(true);
+    return api.admin
+      .realtorStats()
+      .then((list) => {
+        const rows = Array.isArray(list) ? list : list?.items || [];
+        setRealtors(rows.map(mapRealtorStatFromApi));
+        setRealtorsError('');
+      })
+      .catch((err) => {
+        setRealtors([]);
+        setRealtorsError(err?.message || 'Статистика риелторов пока недоступна на бэкенде');
+      })
+      .finally(() => setRealtorsLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (tokenStore.isAuthenticated) loadRealtors();
+  }, [loadRealtors]);
 
   // Load the support-ticket desk (Admin sees all tickets). Needs an Admin JWT — on any
   // failure we keep the demo tickets and surface the reason in a banner. The list route
@@ -262,6 +289,9 @@ export default function AdminApp({ currentUser, onLogout }) {
             properties={properties}
             placements={placements}
             payouts={payouts}
+            realtors={realtors}
+            realtorsLoading={realtorsLoading}
+            realtorsError={realtorsError}
             currency={currency}
             onNavigate={setCurrentSection}
             onAddLog={handleAddAuditLog}
