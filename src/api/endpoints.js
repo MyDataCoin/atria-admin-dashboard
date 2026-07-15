@@ -212,6 +212,10 @@ export const admin = {
   // Admin/Compliance. Investors holding shares in a property (investments ⋈ users/kyc).
   // NOTE: proposed endpoint — not in the API yet; wired with a demo fallback.
   propertyInvestments: (propertyId) => request(`/properties/${propertyId}/investments`),
+  // Admin/Compliance. One investor's whole portfolio: every property they hold, with
+  // token count, share % and invested amount. PROPOSED — backend must add
+  // GET /users/{id}/investments (see BACKEND-INVESTOR-PORTFOLIO.md).
+  investorPortfolio: (userId) => request(`/users/${userId}/investments`),
 };
 
 export default {

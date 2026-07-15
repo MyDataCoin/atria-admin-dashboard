@@ -176,6 +176,24 @@ export function mapHolderFromInvestment(dto, property = {}) {
   };
 }
 
+/**
+ * One row of an investor's portfolio (proposed GET /users/{id}/investments) -> holding.
+ * Only Active investments count as "owned shares". Accepts a few likely field spellings
+ * so a small backend naming difference doesn't blank the card.
+ */
+export function mapInvestorHoldingFromApi(dto) {
+  return {
+    propertyId: dto.propertyId || null,
+    propertyName: dto.propertyName || dto.property?.name || 'Объект',
+    tokensOwned: dto.tokenCount ?? dto.tokens ?? 0,
+    amount: dto.amount ?? null,
+    currency: dto.currency || 'USD',
+    // Share of the property the investor holds; null if the backend doesn't send it.
+    sharePercent: dto.sharePercent ?? dto.share ?? null,
+    status: dto.status || null,
+  };
+}
+
 // Backend ticket status (open|pending|closed) -> dashboard status (Open|Answered|Resolved).
 // `open` = awaiting first support reply, `pending` = support answered / awaiting investor,
 // `closed` = resolved. Priority has no backend counterpart — defaulted to Medium.
@@ -249,26 +267,102 @@ export function mapTicketFromApi(t) {
 
 // ---- Audit log ------------------------------------------------------------
 
+// This is the ADMIN journal: it records what an administrator does in this panel, plus
+// the ticket traffic they have to react to. Investor-side activity (referral deals,
+// investments, payments, KYC vetting, DID/allowlist) belongs to other sections and is
+// filtered out — an allowlist, so new backend event types never leak in on their own.
+//
+// `summary` is nullable and the backend does leave it empty for some rows, which would
+// render as a blank line; these labels are the fallback. Server-composed copy still wins
+// whenever it is present.
+const AUDIT_EVENT_LABELS = {
+  // 1. Objects: created, edited, announced as "coming soon", published.
+  PropertyCreated: 'Объект создан',
+  PropertyUpdated: 'Объект изменён',
+  PropertyAnnounced: 'Объект помечен «Скоро в продаже»',
+  PropertyPublished: 'Объект опубликован',
+  PropertyUnannounced: 'Объект возвращён в черновики',
+  PropertyCompleted: 'Объект закрыт (распродан)',
+  PropertyPaused: 'Продажи приостановлены',
+  PropertyResumed: 'Продажи возобновлены',
+
+  // 2. Ticket arrived / ticket closed.
+  TicketOpened: 'Поступил тикет',
+  TicketClosed: 'Тикет закрыт',
+  TicketReopened: 'Тикет переоткрыт',
+
+  // 3. News / financial report published.
+  PublicationPublished: 'Опубликована новость / финотчёт',
+  PublicationRemoved: 'Публикация снята с ленты',
+};
+
+// Only these events belong in the admin journal.
+const AUDIT_ALLOWED_EVENTS = new Set(Object.keys(AUDIT_EVENT_LABELS));
+
+// Older rows still carry the raw domain-event class name ("TicketClosedEvent"); newer
+// ones are already stripped. Normalize both to the bare action name.
+export function normalizeEventType(eventType) {
+  return String(eventType || '').replace(/Event$/, '');
+}
+
+// CamelCase -> "Camel case", so an unmapped event still reads as words, not a class name.
+function humanizeEventType(eventType) {
+  if (!eventType) return 'Системное событие';
+  const words = String(eventType).replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+export function auditEventLabel(eventType) {
+  const name = normalizeEventType(eventType);
+  return AUDIT_EVENT_LABELS[name] || humanizeEventType(name);
+}
+
 /**
  * AuditLogDto -> dashboard audit row.
- * The backend composes `summary` and `severity` itself, so the UI renders them as-is
- * rather than re-deriving copy from the raw event payload.
  *
  * `actorName` is null for system-generated entries, and is NOT always an admin — a
  * ticket is opened by an investor, so the column is "Исполнитель", not "Администратор".
  * There is no IP address on the entry: the backend doesn't record one, so the UI must
  * not show a column for it (it used to display a hardcoded fake IP).
  */
+// Which aggregate an event belongs to. Older rows put the event name in `entityType`
+// ("DealCreated"), so the raw value can't be trusted for the entity filter — derive it
+// from the action name instead.
+const EVENT_ENTITY = [
+  [/^Property/, 'Объекты'],
+  [/^Ticket/, 'Тикеты'],
+  [/^Publication/, 'Публикации'],
+];
+
+function auditEntityType(a) {
+  const name = normalizeEventType(a.eventType);
+  return EVENT_ENTITY.find(([re]) => re.test(name))?.[1] || '';
+}
+
 export function mapAuditLogFromApi(a) {
   return {
     id: a.id,
     timestamp: fmtTs(a.occurredOnUtc),
     adminName: a.actorName || 'Система',
-    action: a.eventType || '',
-    details: a.summary || '',
+    // Server-composed Russian copy when present; a readable event name otherwise, so
+    // the journal never shows an empty description.
+    details: a.summary?.trim() || auditEventLabel(a.eventType),
     status: (a.severity || 'success').toUpperCase(), // SUCCESS | WARNING | ALERT
+    entityType: auditEntityType(a),
+    // Kept for filtering/search only, never displayed as a column.
+    eventType: normalizeEventType(a.eventType),
     _source: 'api',
   };
+}
+
+/**
+ * Does this entry belong in the admin journal?
+ * Only admin-panel actions (object lifecycle, ticket traffic, publications). Everything
+ * else the backend records — referral deals, investments, payments, KYC vetting, DID —
+ * is investor-side activity and is excluded.
+ */
+export function isAdminAuditEntry(a) {
+  return AUDIT_ALLOWED_EVENTS.has(normalizeEventType(a.eventType));
 }
 
 // ---- Publications ---------------------------------------------------------

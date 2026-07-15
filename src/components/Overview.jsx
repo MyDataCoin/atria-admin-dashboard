@@ -58,10 +58,12 @@ export default function Overview({
     {
       id: 'investments',
       label: 'Объем инвестиций RWA',
-      value: formatVal(stats.totalInvestedVolume, currency),
+      // Real invested volume from the backend, already in its own currency — shown as-is
+      // (not through formatVal, which would apply an FX rate and inflate it).
+      value: `${Math.round(stats.totalInvestedVolume || 0).toLocaleString('en-US')} ${stats.investedCurrency || currency}`,
       icon: Coins,
       desc: 'Привлеченный капитал',
-      subtext: `Ср. доходность ${stats.averageYieldRoi.toFixed(2)}% ROI`,
+      subtext: `${stats.totalInvestors} инвесторов в реестре`,
       color: 'border-l-4 border-amber-800'
     },
     {

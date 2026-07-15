@@ -14,7 +14,13 @@ export default function ActivitiesTimeline({
 }) {
   const [activeTab, setActiveTab] = useState('audit'); // audit, rbac
   const [filterSeverity, setFilterSeverity] = useState('ALL'); // ALL, SUCCESS, WARNING, ALERT
+  const [filterEntity, setFilterEntity] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Entity types present in the loaded trail (Property, Publication, SupportTicket,
+  // Deal, Investment, Compliance …). Derived, so new backend aggregates show up on
+  // their own instead of needing a hardcoded list here.
+  const entityTypes = [...new Set(activities.map((l) => l.entityType).filter(Boolean))].sort();
 
   // Form for creating new admin role (RBAC)
   const [showAddAdmin, setShowAddAdmin] = useState(false);
@@ -73,16 +79,17 @@ export default function ActivitiesTimeline({
 
   const getFilteredLogs = () => {
     return activities.filter(log => {
-      // Filter by Severity
       const matchesSeverity = filterSeverity === 'ALL' || log.status === filterSeverity;
-      // Filter by Search Query
+      const matchesEntity = filterEntity === 'ALL' || log.entityType === filterEntity;
+      // Client-side search over the loaded page — the backend has no search param.
+      // The raw event name is searchable even though it isn't shown as a column.
       const q = searchQuery.toLowerCase();
-      const matchesSearch = !searchQuery || 
-        log.adminName.toLowerCase().includes(q) ||
-        log.action.toLowerCase().includes(q) ||
-        log.details.toLowerCase().includes(q);
+      const matchesSearch = !searchQuery ||
+        (log.adminName || '').toLowerCase().includes(q) ||
+        (log.eventType || '').toLowerCase().includes(q) ||
+        (log.details || '').toLowerCase().includes(q);
 
-      return matchesSeverity && matchesSearch;
+      return matchesSeverity && matchesEntity && matchesSearch;
     });
   };
 
@@ -155,7 +162,7 @@ export default function ActivitiesTimeline({
               <Search className="absolute left-3 top-2.5 text-gray-400" size={14} />
               <input
                 type="text"
-                placeholder="Поиск по журналу (исполнитель, действие, детали)..."
+                placeholder="Поиск по журналу (исполнитель, описание)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full text-xs pl-9 pr-4 py-2 border border-gray-200 rounded focus:outline-none focus:border-[#A38D6D] bg-white text-gray-900"
@@ -171,6 +178,22 @@ export default function ActivitiesTimeline({
               >
                 Обновить
               </button>
+            )}
+
+            {entityTypes.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">Сущность:</span>
+                <select
+                  value={filterEntity}
+                  onChange={(e) => setFilterEntity(e.target.value)}
+                  className="text-[10px] p-1.5 border border-gray-200 bg-white rounded focus:outline-none focus:border-[#A38D6D] text-gray-700 font-mono"
+                >
+                  <option value="ALL">Все</option>
+                  {entityTypes.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
             )}
 
             <div className="flex items-center gap-2">
@@ -201,8 +224,7 @@ export default function ActivitiesTimeline({
                   <tr className="bg-gray-50 border-b border-gray-100 text-[9px] uppercase tracking-wider text-gray-400 font-bold font-mono">
                     <th className="py-3 px-4 text-left">Штамп времени</th>
                     <th className="py-3 px-4 text-left">Исполнитель</th>
-                    <th className="py-3 px-4 text-left">Действие</th>
-                    <th className="py-3 px-4 text-left">Детали</th>
+                    <th className="py-3 px-4 text-left">Описание</th>
                     <th className="py-3 px-4 text-center">Статус</th>
                   </tr>
                 </thead>
@@ -215,10 +237,7 @@ export default function ActivitiesTimeline({
                       <td className="py-3 px-4 text-gray-900 font-bold font-serif whitespace-nowrap">
                         {log.adminName}
                       </td>
-                      <td className="py-3 px-4 text-[#A38D6D] font-bold uppercase text-[10px]">
-                        {log.action}
-                      </td>
-                      <td className="py-3 px-4 text-gray-600 font-sans leading-relaxed min-w-[200px]">
+                      <td className="py-3 px-4 text-gray-700 font-sans leading-relaxed min-w-[300px]">
                         {log.details}
                         {log._source === 'local' && (
                           <span className="ml-2 text-[8px] font-mono uppercase text-gray-400 border border-gray-200 rounded px-1 py-0.5">
@@ -235,7 +254,7 @@ export default function ActivitiesTimeline({
                   ))}
                   {getFilteredLogs().length === 0 && (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-gray-400 italic">
+                      <td colSpan={4} className="py-8 text-center text-gray-400 italic">
                         Записи журнала аудита по заданным фильтрам не найдены.
                       </td>
                     </tr>

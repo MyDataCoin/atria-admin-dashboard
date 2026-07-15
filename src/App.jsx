@@ -3,10 +3,12 @@ import api, { decodeJwt, tokenStore } from './api';
 import {
   mapPropertyFromApi,
   mapInvestorFromApi,
+  mapInvestorHoldingFromApi,
   mapPlacementFromProperty,
   mapTicketFromApi,
   mapPublicationFromApi,
   mapAuditLogFromApi,
+  isAdminAuditEntry,
 } from './api/mappers';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -107,15 +109,32 @@ export default function App() {
   }, [loadProperties]);
 
   // Load the investor registry (user ⋈ kyc_profiles). Needs an Admin JWT — on any
-  // failure we keep the demo investors and show the reason in a banner.
+  // failure we keep the demo investors and show the reason in a banner. The registry
+  // list carries no holdings, so each investor's portfolio is fetched in parallel and
+  // attached — that drives the "total shares" column and seeds the detail card.
   const loadInvestors = React.useCallback(() => {
     setInvestorsLoading(true);
     return api.admin
       .listInvestors()
-      .then((list) => {
-        // Show real users only — exclude admin/service accounts with no KYC (status null).
+      .then(async (list) => {
         const rows = Array.isArray(list) ? list.filter((u) => u.status != null) : [];
-        setInvestors(rows.map(mapInvestorFromApi));
+        const mapped = rows.map(mapInvestorFromApi);
+        const withHoldings = await Promise.all(
+          mapped.map(async (inv) => {
+            try {
+              const res = await api.admin.investorPortfolio(inv.id);
+              const items = Array.isArray(res) ? res : res?.items || [];
+              const holdings = items
+                .map(mapInvestorHoldingFromApi)
+                .filter((h) => !h.status || String(h.status).toLowerCase() === 'active');
+              return { ...inv, holdings };
+            } catch {
+              // Portfolio endpoint unavailable for this row — leave holdings empty.
+              return { ...inv, holdings: [] };
+            }
+          })
+        );
+        setInvestors(withHoldings);
         setInvestorsError('');
       })
       .catch((err) => {
@@ -184,7 +203,9 @@ export default function App() {
       .query({ pageSize: 200 })
       .then((res) => {
         const rows = Array.isArray(res) ? res : res?.items || [];
-        setAuditLogs(rows.map(mapAuditLogFromApi));
+        // Admin-panel actions only: object lifecycle, ticket traffic, publications.
+        // Investor-side events (deals, investments, payments, KYC) are not shown here.
+        setAuditLogs(rows.filter(isAdminAuditEntry).map(mapAuditLogFromApi));
         setAuditError('');
       })
       .catch((err) => {
@@ -267,13 +288,22 @@ export default function App() {
     switch (currentSection) {
       case 'dashboard':
         return (
-          <Overview 
+          <Overview
             stats={{
               ...stats,
               totalObjects: properties.length,
               activePlacements: placements.filter(p => p.status === 'active').length,
               totalInvestors: investors.length,
-              totalInvestedVolume: placements.reduce((sum, p) => sum + p.raisedAmount, 0),
+              // Real invested volume = sum of every investor's active holdings, in the
+              // holdings' own currency (no FX conversion — the amounts are already in
+              // that currency). Deriving it from placements overstated it, because the
+              // backend's availableTokens don't track actual purchases.
+              totalInvestedVolume: investors.reduce(
+                (sum, inv) => sum + (inv.holdings || []).reduce((s, h) => s + (h.amount || 0), 0),
+                0
+              ),
+              investedCurrency:
+                investors.flatMap((inv) => inv.holdings || [])[0]?.currency || currency,
               payoutsDistributed: payouts.filter(p => p.status === 'confirmed').reduce((sum, p) => sum + p.amount, 0)
             }}
             properties={properties}
@@ -345,11 +375,6 @@ export default function App() {
             {!investorsLoading && investorsError && (
               <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
                 ⚠ Реестр инвесторов недоступен — показаны демо-данные. {investorsError}
-              </div>
-            )}
-            {!investorsLoading && !investorsError && (
-              <div className="text-[11px] font-mono text-emerald-800 bg-emerald-50 border border-emerald-100 rounded px-3 py-2">
-                ✓ Реестр инвесторов загружен с бэкенда: {investors.length}
               </div>
             )}
             <UsersAndKyc
