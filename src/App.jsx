@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import api, { decodeJwt, tokenStore } from './api';
 import AdminApp from './AdminApp';
 import RealtorApp from './RealtorApp';
+import SuperAdminApp from './SuperAdminApp';
 import { INITIAL_REALTORS } from './realtor/data';
 
 import { RefreshCw } from 'lucide-react';
@@ -14,6 +15,9 @@ import { RefreshCw } from 'lucide-react';
 function roleFromToken(token) {
   const p = token ? decodeJwt(token) : null;
   const raw = (p?.role || '').toString().toLowerCase();
+  // Super admin — matched before plain admin (its string contains "admin"). The exact
+  // claim spelling is TBD on the backend, so accept a few forms.
+  if (raw.includes('super')) return 'superadmin';
   if (raw.includes('realtor')) return 'realtor';
   // Anything else authenticated against this backend is treated as staff/admin.
   return p ? 'admin' : null;
@@ -29,12 +33,13 @@ function userFromToken(token) {
     // profile so the workspace has a name/company before that resolves.
     return { ...INITIAL_REALTORS[0], id: p.sub || INITIAL_REALTORS[0].id, apiRole: p.role };
   }
+  const isSuper = role === 'superadmin';
   return {
     id: p.sub,
-    name: p.email || p.role || 'Admin',
-    username: p.email || 'admin',
+    name: p.email || p.role || (isSuper ? 'Super Admin' : 'Admin'),
+    username: p.email || (isSuper ? 'superadmin' : 'admin'),
     role: p.role,
-    avatar: p.role || 'ADMIN',
+    avatar: isSuper ? 'SA' : (p.role || 'ADMIN'),
   };
 }
 
@@ -100,6 +105,9 @@ export default function App() {
 
   // --- Authenticated: route to the workspace for the account's role ---------
   if (currentUser) {
+    if (role === 'superadmin') {
+      return <SuperAdminApp currentUser={currentUser} onLogout={handleLogout} />;
+    }
     if (role === 'realtor') {
       return <RealtorApp currentUser={currentUser} onLogout={handleLogout} />;
     }

@@ -234,6 +234,24 @@ export const admin = {
   realtorStats: () => request('/realtors/stats'),
 };
 
+// ---- Super admin ----------------------------------------------------------
+// Ban/unban accounts and reset/restore passwords for admins & realtors.
+// ALL PROPOSED — the backend has no superadmin role and none of these routes yet
+// (superadmin login returns 401). See BACKEND-SUPERADMIN.md.
+export const superadmin = {
+  // Block an account (investor or realtor). It can no longer authenticate.
+  banUser: (userId) => request(`/users/${userId}/ban`, { method: 'POST' }),
+  unbanUser: (userId) => request(`/users/${userId}/unban`, { method: 'POST' }),
+  // Reset an admin/realtor password. The backend generates a temporary one and returns
+  // it (or emails/SMS it) — body may be empty, or { newPassword } to set explicitly.
+  resetPassword: (userId, body) =>
+    request(`/users/${userId}/password/reset`, { method: 'POST', body }),
+  // Restore a previously-reset account to a usable state (e.g. clear the forced-reset
+  // flag). Kept separate so "reset" and "restore" are distinct audited actions.
+  restorePassword: (userId) =>
+    request(`/users/${userId}/password/restore`, { method: 'POST' }),
+};
+
 export default {
   auth,
   properties,
@@ -246,4 +264,5 @@ export default {
   support,
   audit,
   admin,
+  superadmin,
 };

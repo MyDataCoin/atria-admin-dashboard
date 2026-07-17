@@ -205,6 +205,8 @@ export function mapRealtorStatFromApi(dto) {
     companyName: dto.companyName || dto.company || '',
     closedDeals: dto.closedDeals ?? dto.completedDeals ?? dto.succeededDeals ?? 0,
     totalDeals: dto.totalDeals ?? dto.dealsCount ?? null,
+    // Banned by a super admin — drives the moderation status in the super-admin panel.
+    status: dto.blocked ? 'Blocked' : 'Active',
     _source: 'api',
   };
 }
