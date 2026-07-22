@@ -239,6 +239,14 @@ export const admin = {
 // ALL PROPOSED — the backend has no superadmin role and none of these routes yet
 // (superadmin login returns 401). See BACKEND-SUPERADMIN.md.
 export const superadmin = {
+  // List staff/admin accounts (so a super admin can reset/restore their passwords).
+  // PROPOSED — no admin-list endpoint exists yet (/users is the investor registry and
+  // carries no role). See BACKEND-SUPERADMIN-ADMINS.md.
+  listAdmins: () => request('/admins'),
+  // Register a new realtor account. PROPOSED — no such endpoint exists yet; only OTP
+  // (investors) and login routes are present. See BACKEND-SUPERADMIN-REALTOR-REGISTER.md.
+  // body: { username, password, fullName, companyName?, phoneNumber? }
+  registerRealtor: (body) => request('/realtors', { method: 'POST', body }),
   // Block an account (investor or realtor). It can no longer authenticate.
   banUser: (userId) => request(`/users/${userId}/ban`, { method: 'POST' }),
   unbanUser: (userId) => request(`/users/${userId}/unban`, { method: 'POST' }),

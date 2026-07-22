@@ -1,6 +1,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import api from './api';
-import { mapInvestorFromApi, mapRealtorStatFromApi } from './api/mappers';
+import {
+  mapInvestorFromApi,
+  mapRealtorStatFromApi,
+  mapAdminFromApi,
+  mapAuditLogFromApi,
+} from './api/mappers';
 import {
   ShieldAlert,
   Ban,
@@ -11,6 +16,8 @@ import {
   RefreshCw,
   Users,
   Briefcase,
+  Activity,
+  UserPlus,
 } from 'lucide-react';
 
 // Super-admin workspace: moderate investors and realtors (ban/unban) and manage
@@ -21,11 +28,13 @@ import {
 // all missing; see BACKEND-SUPERADMIN.md). Every action calls the proposed endpoint and
 // surfaces the failure inline, so the moment the backend ships them, this works as-is.
 export default function SuperAdminApp({ currentUser, onLogout }) {
-  const [tab, setTab] = useState('investors'); // investors | realtors
+  const [tab, setTab] = useState('investors'); // investors | realtors | admins
   const [query, setQuery] = useState('');
 
   const [investors, setInvestors] = useState([]);
   const [realtors, setRealtors] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -33,10 +42,21 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   const [busy, setBusy] = useState({});
   const [flash, setFlash] = useState(null); // { id, kind: 'ok'|'err', text }
 
+  // New-realtor registration modal.
+  const [showRegister, setShowRegister] = useState(false);
+  const [reg, setReg] = useState({ username: '', password: '', fullName: '', companyName: '', phoneNumber: '' });
+  const [regBusy, setRegBusy] = useState(false);
+  const [regResult, setRegResult] = useState(null); // { kind: 'ok'|'err', text }
+
   const load = useCallback(() => {
     setLoading(true);
-    Promise.allSettled([api.admin.listInvestors(), api.admin.realtorStats()])
-      .then(([inv, rea]) => {
+    Promise.allSettled([
+      api.admin.listInvestors(),
+      api.admin.realtorStats(),
+      api.superadmin.listAdmins(),
+      api.audit.query({ pageSize: 200 }),
+    ])
+      .then(([inv, rea, adm, aud]) => {
         if (inv.status === 'fulfilled') {
           const rows = Array.isArray(inv.value) ? inv.value : inv.value?.items || [];
           setInvestors(rows.filter((u) => u.status != null).map(mapInvestorFromApi));
@@ -45,12 +65,38 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
           const rows = Array.isArray(rea.value) ? rea.value : rea.value?.items || [];
           setRealtors(rows.map(mapRealtorStatFromApi));
         }
+        if (adm.status === 'fulfilled') {
+          const rows = Array.isArray(adm.value) ? adm.value : adm.value?.items || [];
+          // Hide the super admin itself — it must not ban or reset its own password.
+          // Match on the logged-in user's id, with a username fallback.
+          setAdmins(
+            rows
+              .map(mapAdminFromApi)
+              .filter(
+                (a) =>
+                  a.id !== currentUser?.id &&
+                  a.username?.toLowerCase() !== 'superadmin' &&
+                  a.username?.toLowerCase() !== (currentUser?.username || '').toLowerCase()
+              )
+          );
+        }
+        if (aud.status === 'fulfilled') {
+          const rows = Array.isArray(aud.value) ? aud.value : aud.value?.items || [];
+          setAuditLogs(rows.map(mapAuditLogFromApi));
+        }
         // Only a hard error on both is worth a banner; partial data still renders.
-        setError(
-          inv.status === 'rejected' && rea.status === 'rejected'
-            ? inv.reason?.message || 'Не удалось загрузить пользователей'
-            : ''
-        );
+        // A 403 here is a backend authorization gap (SuperAdmin not allowed to read
+        // /users & /realtors/stats), not an empty registry — say so explicitly.
+        if (inv.status === 'rejected' && rea.status === 'rejected') {
+          const s = inv.reason?.status;
+          setError(
+            s === 403
+              ? 'Бэкенд не даёт супер-админу читать реестр (403). Нужно открыть SuperAdmin доступ к GET /users и /realtors/stats.'
+              : inv.reason?.message || 'Не удалось загрузить пользователей'
+          );
+        } else {
+          setError('');
+        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -97,9 +143,33 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   const restorePassword = (row) =>
     runAction(row.id, 'restore', () => api.superadmin.restorePassword(row.id), 'Доступ восстановлен');
 
+  const submitRegister = async (e) => {
+    e.preventDefault();
+    if (!reg.username.trim() || !reg.password.trim() || !reg.fullName.trim() || regBusy) return;
+    setRegBusy(true);
+    setRegResult(null);
+    try {
+      await api.superadmin.registerRealtor({
+        username: reg.username.trim(),
+        password: reg.password,
+        fullName: reg.fullName.trim(),
+        companyName: reg.companyName.trim() || null,
+        phoneNumber: reg.phoneNumber.trim() || null,
+      });
+      setRegResult({ kind: 'ok', text: `Риелтор «${reg.fullName.trim()}» зарегистрирован` });
+      setReg({ username: '', password: '', fullName: '', companyName: '', phoneNumber: '' });
+      load(); // refresh the realtor list
+    } catch (err) {
+      setRegResult({ kind: 'err', text: err?.message || 'Регистрация недоступна на бэкенде' });
+    } finally {
+      setRegBusy(false);
+    }
+  };
+
   const q = query.trim().toLowerCase();
-  const shownInvestors = investors.filter((r) => !q || (r.name || '').toLowerCase().includes(q));
-  const shownRealtors = realtors.filter((r) => !q || (r.fullName || '').toLowerCase().includes(q));
+  const nameOf = (r) => (r.fullName || r.name || '').toLowerCase();
+  const source = tab === 'investors' ? investors : tab === 'realtors' ? realtors : admins;
+  const shown = source.filter((r) => !q || nameOf(r).includes(q));
 
   return (
     <div className="min-h-screen bg-[#0e0e0e] text-gray-200 font-sans">
@@ -160,6 +230,22 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             >
               <Briefcase size={12} /> Риелторы ({realtors.length})
             </button>
+            <button
+              onClick={() => setTab('admins')}
+              className={`px-3 py-1.5 rounded-sm transition-all cursor-pointer flex items-center gap-1.5 ${
+                tab === 'admins' ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <ShieldAlert size={12} /> Админы ({admins.length})
+            </button>
+            <button
+              onClick={() => setTab('audit')}
+              className={`px-3 py-1.5 rounded-sm transition-all cursor-pointer flex items-center gap-1.5 ${
+                tab === 'audit' ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Activity size={12} /> Аудит ({auditLogs.length})
+            </button>
           </div>
 
           <div className="relative sm:w-72">
@@ -172,41 +258,110 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             />
           </div>
 
-          <button
-            onClick={load}
-            disabled={loading}
-            className="text-[9px] font-mono uppercase tracking-wider font-bold text-gray-400 hover:text-white disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
-          >
-            <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Обновить
-          </button>
+          <div className="flex items-center gap-3">
+            {tab === 'realtors' && (
+              <button
+                onClick={() => { setShowRegister(true); setRegResult(null); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[9px] font-mono uppercase font-bold tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all cursor-pointer"
+              >
+                <UserPlus size={12} /> Зарегистрировать риелтора
+              </button>
+            )}
+            <button
+              onClick={load}
+              disabled={loading}
+              className="text-[9px] font-mono uppercase tracking-wider font-bold text-gray-400 hover:text-white disabled:opacity-50 transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Обновить
+            </button>
+          </div>
         </div>
 
-        {/* Table */}
+        {/* Audit journal */}
+        {tab === 'audit' && (
+          <div className="bg-[#141414] border border-white/10 rounded-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-white/5 text-[9px] uppercase tracking-wider text-gray-500 font-bold font-mono">
+                    <th className="py-3 px-4 text-left">Время</th>
+                    <th className="py-3 px-4 text-left">Исполнитель</th>
+                    <th className="py-3 px-4 text-left">Описание</th>
+                    <th className="py-3 px-4 text-center">Статус</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5 font-mono text-[11px]">
+                  {auditLogs
+                    .filter((l) => !q || `${l.adminName} ${l.details}`.toLowerCase().includes(q))
+                    .map((log) => (
+                      <tr key={log.id} className="hover:bg-white/5">
+                        <td className="py-3 px-4 text-gray-500 whitespace-nowrap">{log.timestamp}</td>
+                        <td className="py-3 px-4 text-white font-serif font-bold whitespace-nowrap">{log.adminName}</td>
+                        <td className="py-3 px-4 text-gray-300 font-sans">{log.details}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span
+                            className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded border ${
+                              log.status === 'ALERT'
+                                ? 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                                : log.status === 'WARNING'
+                                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                            }`}
+                          >
+                            {log.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  {!loading && auditLogs.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-gray-500 italic font-mono text-[11px]">
+                        Журнал пуст.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Users table (investors / realtors / admins) */}
+        {tab !== 'audit' && (
         <div className="bg-[#141414] border border-white/10 rounded-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="bg-white/5 text-[9px] uppercase tracking-wider text-gray-500 font-bold font-mono">
-                  <th className="py-3 px-4 text-left">{tab === 'investors' ? 'Инвестор' : 'Риелтор'}</th>
+                  <th className="py-3 px-4 text-left">
+                    {tab === 'investors' ? 'Инвестор' : tab === 'realtors' ? 'Риелтор' : 'Администратор'}
+                  </th>
                   <th className="py-3 px-4 text-left">Статус</th>
                   <th className="py-3 px-4 text-right">Действия</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
-                {(tab === 'investors' ? shownInvestors : shownRealtors).map((row) => {
+                {shown.map((row) => {
                   const isRealtor = tab === 'realtors';
+                  const isAdmin = tab === 'admins';
                   const blocked = row.status === 'Blocked';
                   const rowBusy = busy[row.id];
                   const showFlash = flash && flash.id === row.id;
+                  // Passwords exist only for admins and realtors; investors log in via
+                  // phone-OTP and have none, so no reset/restore for them.
+                  const canManagePassword = isRealtor || isAdmin;
+                  const subtitle = isRealtor
+                    ? row.companyName || 'Риелтор'
+                    : isAdmin
+                      ? row.username || row.email || 'Администратор'
+                      : row.phone || row.email || '—';
                   return (
                     <tr key={row.id} className="hover:bg-white/5 align-top">
                       <td className="py-3.5 px-4">
                         <span className="font-bold text-white font-serif block">
-                          {isRealtor ? row.fullName : row.name}
+                          {row.fullName || row.name}
                         </span>
-                        <span className="text-[9px] text-gray-500 font-mono">
-                          {isRealtor ? row.companyName || 'Риелтор' : row.phone || row.email || '—'}
-                        </span>
+                        <span className="text-[9px] text-gray-500 font-mono">{subtitle}</span>
                         {showFlash && (
                           <span
                             className={`mt-1 block text-[9px] font-mono ${
@@ -248,37 +403,44 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                                 : 'Заблокировать'}
                           </button>
 
-                          <button
-                            onClick={() => resetPassword(row)}
-                            disabled={!!rowBusy}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <KeyRound size={11} />
-                            {rowBusy === 'reset' ? '…' : 'Сбросить пароль'}
-                          </button>
+                          {canManagePassword && (
+                            <>
+                              <button
+                                onClick={() => resetPassword(row)}
+                                disabled={!!rowBusy}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                <KeyRound size={11} />
+                                {rowBusy === 'reset' ? '…' : 'Сбросить пароль'}
+                              </button>
 
-                          <button
-                            onClick={() => restorePassword(row)}
-                            disabled={!!rowBusy}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
-                          >
-                            <RotateCcw size={11} />
-                            {rowBusy === 'restore' ? '…' : 'Восстановить'}
-                          </button>
+                              <button
+                                onClick={() => restorePassword(row)}
+                                disabled={!!rowBusy}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
+                              >
+                                <RotateCcw size={11} />
+                                {rowBusy === 'restore' ? '…' : 'Восстановить'}
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
                   );
                 })}
 
-                {!loading &&
-                  (tab === 'investors' ? shownInvestors : shownRealtors).length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="py-10 text-center text-gray-500 italic font-mono text-[11px]">
-                        {tab === 'investors' ? 'Инвесторы не найдены.' : 'Риелторы не найдены.'}
-                      </td>
-                    </tr>
-                  )}
+                {!loading && shown.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="py-10 text-center text-gray-500 italic font-mono text-[11px]">
+                      {tab === 'investors'
+                        ? 'Инвесторы не найдены.'
+                        : tab === 'realtors'
+                          ? 'Риелторы не найдены.'
+                          : 'Администраторы не найдены.'}
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -290,7 +452,79 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             </div>
           )}
         </div>
+        )}
       </main>
+
+      {/* Register realtor modal */}
+      {showRegister && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowRegister(false)}
+        >
+          <div
+            className="bg-[#141414] border border-white/10 rounded-sm w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
+              <h3 className="font-serif text-base text-white flex items-center gap-2">
+                <UserPlus size={16} className="text-rose-400" /> Новый риелтор
+              </h3>
+              <button
+                onClick={() => setShowRegister(false)}
+                className="text-gray-500 hover:text-white text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={submitRegister} className="space-y-3 text-xs">
+              {[
+                { k: 'fullName', label: 'ФИО *', type: 'text' },
+                { k: 'username', label: 'Логин *', type: 'text' },
+                { k: 'password', label: 'Пароль *', type: 'text' },
+                { k: 'companyName', label: 'Компания', type: 'text' },
+                { k: 'phoneNumber', label: 'Телефон', type: 'text' },
+              ].map((f) => (
+                <div key={f.k} className="space-y-1">
+                  <label className="block text-[8px] uppercase font-bold tracking-wider text-gray-500 font-mono">
+                    {f.label}
+                  </label>
+                  <input
+                    type={f.type}
+                    value={reg[f.k]}
+                    onChange={(e) => setReg((r) => ({ ...r, [f.k]: e.target.value }))}
+                    className="w-full p-2.5 bg-white/5 border border-white/10 rounded text-white focus:outline-none focus:border-rose-400/50 font-mono"
+                  />
+                </div>
+              ))}
+
+              {regResult && (
+                <p className={`text-[10px] font-mono ${regResult.kind === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {regResult.kind === 'ok' ? '✓ ' : '⚠ '}
+                  {regResult.text}
+                </p>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRegister(false)}
+                  className="flex-1 border border-white/15 text-gray-400 hover:bg-white/5 text-[10px] uppercase font-bold tracking-widest py-2.5 rounded transition-all cursor-pointer"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="submit"
+                  disabled={regBusy}
+                  className="flex-1 bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 disabled:opacity-50 text-[10px] uppercase font-bold tracking-widest py-2.5 rounded transition-all cursor-pointer"
+                >
+                  {regBusy ? 'Регистрируем…' : 'Зарегистрировать'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

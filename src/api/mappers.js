@@ -195,6 +195,23 @@ export function mapInvestorHoldingFromApi(dto) {
 }
 
 /**
+ * Staff/admin row (proposed GET /admins) -> super-admin panel row.
+ * `role: 'admin'` tags the row so the panel shows password controls (admins have
+ * passwords; investors don't).
+ */
+export function mapAdminFromApi(dto) {
+  return {
+    id: dto.id || dto.userId,
+    name: dto.fullName || dto.username || dto.name || 'Администратор',
+    username: dto.username || '',
+    email: dto.email || '',
+    role: 'admin',
+    status: dto.blocked ? 'Blocked' : 'Active',
+    _source: 'api',
+  };
+}
+
+/**
  * Realtor leaderboard row (proposed GET /realtors/stats) -> dashboard realtor.
  * `closedDeals` drives the ranking and tier; accepts a few likely field spellings.
  */
