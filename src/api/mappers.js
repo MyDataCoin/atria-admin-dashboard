@@ -399,6 +399,9 @@ export function mapAuditLogFromApi(a) {
     entityType: auditEntityType(a),
     // Kept for filtering/search only, never displayed as a column.
     eventType: normalizeEventType(a.eventType),
+    // The affected user (ban/appeal target). The backend's summary carries only the role
+    // ("(Realtor)"), so the super-admin panel resolves this id to a name.
+    entityId: a.entityId || null,
     _source: 'api',
   };
 }

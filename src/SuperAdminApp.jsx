@@ -201,6 +201,31 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   const source = tab === 'investors' ? investors : tab === 'realtors' ? realtors : admins;
   const shown = source.filter((r) => !q || nameOf(r).includes(q));
 
+  // id -> display name, built from everyone we've loaded, so audit rows about a user
+  // (ban/unban/appeal) can show the person's name instead of just their role.
+  const nameById = React.useMemo(() => {
+    const m = {};
+    for (const r of [...investors, ...realtors, ...admins]) {
+      if (r.id) m[r.id] = r.fullName || r.name || '';
+    }
+    return m;
+  }, [investors, realtors, admins]);
+
+  // The backend's audit summary carries only the role ("Заблокирован аккаунт (Realtor)").
+  // If we can resolve the affected user's id to a name, append it.
+  const auditText = (log) => {
+    const name = log.entityId && nameById[log.entityId];
+    if (!name) return log.details;
+    // Don't double up if the summary already contains the name.
+    if (log.details.includes(name)) return log.details;
+    // Ban/unban: replace the trailing "(Role)" with the name; keep any ": reason" tail.
+    if (/^(Заблокирован|Разблокирован) аккаунт/.test(log.details)) {
+      return log.details.replace(/\((?:Investor|Realtor|Admin|[^)]*)\)/, name);
+    }
+    // Appeals and everything else: prefix the name.
+    return `${name}: ${log.details}`;
+  };
+
   return (
     <div className="min-h-screen bg-[#0e0e0e] text-gray-200 font-sans">
       {/* Top bar */}
@@ -330,12 +355,13 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                 </thead>
                 <tbody className="divide-y divide-white/5 font-mono text-[11px]">
                   {auditLogs
-                    .filter((l) => !q || `${l.adminName} ${l.details}`.toLowerCase().includes(q))
-                    .map((log) => (
+                    .map((log) => ({ log, text: auditText(log) }))
+                    .filter(({ log, text }) => !q || `${log.adminName} ${text}`.toLowerCase().includes(q))
+                    .map(({ log, text }) => (
                       <tr key={log.id} className="hover:bg-white/5">
                         <td className="py-3 px-4 text-gray-500 whitespace-nowrap">{log.timestamp}</td>
                         <td className="py-3 px-4 text-white font-serif font-bold whitespace-nowrap">{log.adminName}</td>
-                        <td className="py-3 px-4 text-gray-300 font-sans">{log.details}</td>
+                        <td className="py-3 px-4 text-gray-300 font-sans">{text}</td>
                         <td className="py-3 px-4 text-center">
                           <span
                             className={`text-[8px] uppercase font-bold px-2 py-0.5 rounded border ${
