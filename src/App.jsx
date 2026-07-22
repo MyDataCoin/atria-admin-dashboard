@@ -3,6 +3,8 @@ import api, { decodeJwt, tokenStore } from './api';
 import AdminApp from './AdminApp';
 import RealtorApp from './RealtorApp';
 import SuperAdminApp from './SuperAdminApp';
+import PasswordInput from './components/PasswordInput';
+import BlockedScreen from './components/BlockedScreen';
 import { INITIAL_REALTORS } from './realtor/data';
 
 import { RefreshCw } from 'lucide-react';
@@ -54,11 +56,23 @@ export default function App() {
   const [loginPass, setLoginPass] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
+  // Set when the backend rejects a login because the account is banned (403 "banned").
+  // Shows the blocked screen with an appeal form instead of the normal login error.
+  const [blockedUser, setBlockedUser] = useState(null);
 
   // Unified login: the same form serves both roles. We try the admin endpoint
   // first and fall back to the realtor endpoint on an auth failure (401/400),
   // then read the role straight from the returned JWT. The user never has to
   // pick "admin vs realtor" — the account decides.
+  // A banned account is rejected with 403 carrying a "banned" marker (title/detail/
+  // reason). Distinguishes a ban from a wrong password (401) or any other 403.
+  const isBanError = (err) => {
+    if (err?.status !== 403) return false;
+    const p = err.problem || {};
+    const hay = `${p.title || ''} ${p.detail || ''} ${p.reason || ''} ${p.code || ''}`.toLowerCase();
+    return hay.includes('ban') || hay.includes('block') || p.reason === 'banned';
+  };
+
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setLoggingIn(true);
@@ -70,6 +84,8 @@ export default function App() {
       try {
         tokens = await api.auth.adminLogin(username, loginPass);
       } catch (adminErr) {
+        // A ban is final — don't retry the realtor endpoint, show the blocked screen.
+        if (isBanError(adminErr)) throw adminErr;
         // Only fall through to the realtor endpoint on a credentials rejection;
         // a network/server error should surface as-is.
         if (adminErr?.status === 401 || adminErr?.status === 400) {
@@ -83,11 +99,19 @@ export default function App() {
       setCurrentUser(userFromToken(tokens.accessToken) || { name: username, username });
       setLoginPass('');
     } catch (err) {
-      setLoginError(
-        err?.status === 401 || err?.status === 400
-          ? 'Неверный логин или пароль.'
-          : (err?.message || 'Не удалось войти. Проверьте соединение с сервером.')
-      );
+      if (isBanError(err)) {
+        // The backend includes the ban reason in the 403 body (a few likely field names).
+        const p = err.problem || {};
+        const reason = p.reason && p.reason !== 'banned' ? p.reason : p.banReason || p.detail || '';
+        setBlockedUser({ username, reason });
+        setLoginPass('');
+      } else {
+        setLoginError(
+          err?.status === 401 || err?.status === 400
+            ? 'Неверный логин или пароль.'
+            : (err?.message || 'Не удалось войти. Проверьте соединение с сервером.')
+        );
+      }
     } finally {
       setLoggingIn(false);
     }
@@ -112,6 +136,17 @@ export default function App() {
       return <RealtorApp currentUser={currentUser} onLogout={handleLogout} />;
     }
     return <AdminApp currentUser={currentUser} onLogout={handleLogout} />;
+  }
+
+  // --- Banned account: locked-out screen with an appeal form ----------------
+  if (blockedUser) {
+    return (
+      <BlockedScreen
+        username={blockedUser.username}
+        reason={blockedUser.reason}
+        onBack={() => setBlockedUser(null)}
+      />
+    );
   }
 
   // --- Unauthenticated: unified login form ----------------------------------
@@ -165,13 +200,12 @@ export default function App() {
             <label className="block text-[8px] tracking-widest uppercase font-bold text-gray-400 font-mono">
               Пароль
             </label>
-            <input
-              type="password"
+            <PasswordInput
               required
-              placeholder="••••••••"
               value={loginPass}
               onChange={(e) => setLoginPass(e.target.value)}
               className="w-full p-3 bg-white/5 border border-white/10 focus:border-[#A38D6D] text-white focus:outline-none rounded font-mono"
+              iconClassName="text-gray-500 hover:text-white"
             />
           </div>
 

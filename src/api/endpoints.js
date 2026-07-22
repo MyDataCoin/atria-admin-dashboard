@@ -247,8 +247,11 @@ export const superadmin = {
   // (investors) and login routes are present. See BACKEND-SUPERADMIN-REALTOR-REGISTER.md.
   // body: { username, password, fullName, companyName?, phoneNumber? }
   registerRealtor: (body) => request('/realtors', { method: 'POST', body }),
-  // Block an account (investor or realtor). It can no longer authenticate.
-  banUser: (userId) => request(`/users/${userId}/ban`, { method: 'POST' }),
+  // Block an account (investor or realtor). It can no longer authenticate. The optional
+  // reason is stored with the ban and shown to the user on the blocked screen.
+  // body: { reason } — PROPOSED (the endpoint takes no body yet). See BACKEND-SUPERADMIN-APPEALS.md.
+  banUser: (userId, reason) =>
+    request(`/users/${userId}/ban`, { method: 'POST', body: reason ? { reason } : undefined }),
   unbanUser: (userId) => request(`/users/${userId}/unban`, { method: 'POST' }),
   // Reset an admin/realtor password. The backend generates a temporary one and returns
   // it (or emails/SMS it) — body may be empty, or { newPassword } to set explicitly.
@@ -258,6 +261,16 @@ export const superadmin = {
   // flag). Kept separate so "reset" and "restore" are distinct audited actions.
   restorePassword: (userId) =>
     request(`/users/${userId}/password/restore`, { method: 'POST' }),
+  // Ban appeals: a blocked user submits one from the "you are blocked" screen; the super
+  // admin reads them here. PROPOSED — see BACKEND-SUPERADMIN-APPEALS.md.
+  listAppeals: () => request('/appeals'),
+};
+
+// Appeal submitted by a blocked user. No auth: the account can't authenticate while
+// banned, so this route must accept the ban context without a token.
+// body: { username, message }  — PROPOSED, see BACKEND-SUPERADMIN-APPEALS.md.
+export const appeals = {
+  submit: (body) => request('/appeals', { method: 'POST', body, auth: false }),
 };
 
 export default {
@@ -273,4 +286,5 @@ export default {
   audit,
   admin,
   superadmin,
+  appeals,
 };

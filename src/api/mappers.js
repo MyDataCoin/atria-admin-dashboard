@@ -195,6 +195,20 @@ export function mapInvestorHoldingFromApi(dto) {
 }
 
 /**
+ * Ban appeal (proposed GET /appeals) -> super-admin panel row.
+ */
+export function mapAppealFromApi(dto) {
+  return {
+    id: dto.id,
+    username: dto.username || '—',
+    fullName: dto.fullName || dto.username || '—',
+    message: dto.message || '',
+    createdAt: fmtTs(dto.createdAtUtc || dto.createdAt),
+    _source: 'api',
+  };
+}
+
+/**
  * Staff/admin row (proposed GET /admins) -> super-admin panel row.
  * `role: 'admin'` tags the row so the panel shows password controls (admins have
  * passwords; investors don't).

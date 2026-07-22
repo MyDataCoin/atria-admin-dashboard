@@ -5,11 +5,12 @@ import {
   mapRealtorStatFromApi,
   mapAdminFromApi,
   mapAuditLogFromApi,
+  mapAppealFromApi,
 } from './api/mappers';
+import PasswordInput from './components/PasswordInput';
 import {
   ShieldAlert,
   Ban,
-  RotateCcw,
   KeyRound,
   LogOut,
   Search,
@@ -18,10 +19,11 @@ import {
   Briefcase,
   Activity,
   UserPlus,
+  Inbox,
 } from 'lucide-react';
 
 // Super-admin workspace: moderate investors and realtors (ban/unban) and manage
-// admin/realtor passwords (reset/restore). Authentication and role routing live in the
+// admin/realtor passwords (reset). Authentication and role routing live in the
 // root App shell; this is mounted only for a superadmin account.
 //
 // The backend has NONE of these operations yet (superadmin role, ban, password routes —
@@ -35,12 +37,17 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   const [realtors, setRealtors] = useState([]);
   const [admins, setAdmins] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [appeals, setAppeals] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Per-row action state: { [id]: 'banning' | 'resetting' | ... } and last result text.
   const [busy, setBusy] = useState({});
   const [flash, setFlash] = useState(null); // { id, kind: 'ok'|'err', text }
+
+  // Ban-reason modal: which row is being banned + the reason text.
+  const [banTarget, setBanTarget] = useState(null);
+  const [banReason, setBanReason] = useState('');
 
   // New-realtor registration modal.
   const [showRegister, setShowRegister] = useState(false);
@@ -55,8 +62,9 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
       api.admin.realtorStats(),
       api.superadmin.listAdmins(),
       api.audit.query({ pageSize: 200 }),
+      api.superadmin.listAppeals(),
     ])
-      .then(([inv, rea, adm, aud]) => {
+      .then(([inv, rea, adm, aud, app]) => {
         if (inv.status === 'fulfilled') {
           const rows = Array.isArray(inv.value) ? inv.value : inv.value?.items || [];
           setInvestors(rows.filter((u) => u.status != null).map(mapInvestorFromApi));
@@ -83,6 +91,10 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
         if (aud.status === 'fulfilled') {
           const rows = Array.isArray(aud.value) ? aud.value : aud.value?.items || [];
           setAuditLogs(rows.map(mapAuditLogFromApi));
+        }
+        if (app.status === 'fulfilled') {
+          const rows = Array.isArray(app.value) ? app.value : app.value?.items || [];
+          setAppeals(rows.map(mapAppealFromApi));
         }
         // Only a hard error on both is worth a banner; partial data still renders.
         // A 403 here is a backend authorization gap (SuperAdmin not allowed to read
@@ -124,12 +136,26 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   };
 
   const banToggle = (row) => {
-    const blocked = row.status === 'Blocked';
+    if (row.status === 'Blocked') {
+      // Unban is immediate — no reason needed.
+      runAction(row.id, 'unban', () => api.superadmin.unbanUser(row.id), 'Аккаунт разблокирован', {
+        reload: true,
+      });
+    } else {
+      // Ban asks for a reason first — it's shown to the user on the blocked screen.
+      setBanTarget(row);
+      setBanReason('');
+    }
+  };
+
+  const confirmBan = () => {
+    const row = banTarget;
+    setBanTarget(null);
     runAction(
       row.id,
-      blocked ? 'unban' : 'ban',
-      () => (blocked ? api.superadmin.unbanUser(row.id) : api.superadmin.banUser(row.id)),
-      blocked ? 'Аккаунт разблокирован' : 'Аккаунт заблокирован',
+      'ban',
+      () => api.superadmin.banUser(row.id, banReason.trim() || undefined),
+      'Аккаунт заблокирован',
       { reload: true }
     );
   };
@@ -139,9 +165,6 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
       const pwd = res?.temporaryPassword;
       return pwd ? `Новый пароль: ${pwd}` : 'Пароль сброшен';
     });
-
-  const restorePassword = (row) =>
-    runAction(row.id, 'restore', () => api.superadmin.restorePassword(row.id), 'Доступ восстановлен');
 
   const submitRegister = async (e) => {
     e.preventDefault();
@@ -160,7 +183,14 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
       setReg({ username: '', password: '', fullName: '', companyName: '', phoneNumber: '' });
       load(); // refresh the realtor list
     } catch (err) {
-      setRegResult({ kind: 'err', text: err?.message || 'Регистрация недоступна на бэкенде' });
+      // 404 = the backend hasn't shipped POST /realtors yet; 409 = username taken.
+      const text =
+        err?.status === 404
+          ? 'Бэкенд ещё не поддерживает регистрацию риелторов (нет POST /realtors).'
+          : err?.status === 409
+            ? 'Такой логин уже занят.'
+            : err?.message || 'Регистрация недоступна на бэкенде';
+      setRegResult({ kind: 'err', text });
     } finally {
       setRegBusy(false);
     }
@@ -246,6 +276,14 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             >
               <Activity size={12} /> Аудит ({auditLogs.length})
             </button>
+            <button
+              onClick={() => setTab('appeals')}
+              className={`px-3 py-1.5 rounded-sm transition-all cursor-pointer flex items-center gap-1.5 ${
+                tab === 'appeals' ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <Inbox size={12} /> Обращения ({appeals.length})
+            </button>
           </div>
 
           <div className="relative sm:w-72">
@@ -326,8 +364,35 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
           </div>
         )}
 
+        {/* Appeals from blocked users */}
+        {tab === 'appeals' && (
+          <div className="space-y-3">
+            {appeals
+              .filter((a) => !q || `${a.username} ${a.fullName} ${a.message}`.toLowerCase().includes(q))
+              .map((a) => (
+                <div key={a.id} className="bg-[#141414] border border-white/10 rounded-sm p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-bold text-white font-serif text-sm">
+                      {a.fullName}
+                      {a.username && a.username !== a.fullName && (
+                        <span className="text-gray-500 font-mono text-[10px] ml-2">@{a.username}</span>
+                      )}
+                    </span>
+                    <span className="text-[9px] font-mono text-gray-500">{a.createdAt}</span>
+                  </div>
+                  <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{a.message}</p>
+                </div>
+              ))}
+            {!loading && appeals.length === 0 && (
+              <div className="bg-[#141414] border border-white/10 rounded-sm py-10 text-center text-gray-500 italic font-mono text-[11px]">
+                Обращений нет.
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Users table (investors / realtors / admins) */}
-        {tab !== 'audit' && (
+        {(tab === 'investors' || tab === 'realtors' || tab === 'admins') && (
         <div className="bg-[#141414] border border-white/10 rounded-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -404,25 +469,14 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                           </button>
 
                           {canManagePassword && (
-                            <>
-                              <button
-                                onClick={() => resetPassword(row)}
-                                disabled={!!rowBusy}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
-                              >
-                                <KeyRound size={11} />
-                                {rowBusy === 'reset' ? '…' : 'Сбросить пароль'}
-                              </button>
-
-                              <button
-                                onClick={() => restorePassword(row)}
-                                disabled={!!rowBusy}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
-                              >
-                                <RotateCcw size={11} />
-                                {rowBusy === 'restore' ? '…' : 'Восстановить'}
-                              </button>
-                            </>
+                            <button
+                              onClick={() => resetPassword(row)}
+                              disabled={!!rowBusy}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-[9px] font-mono uppercase font-bold tracking-wider border border-white/15 text-gray-300 hover:bg-white/10 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <KeyRound size={11} />
+                              {rowBusy === 'reset' ? '…' : 'Сбросить пароль'}
+                            </button>
                           )}
                         </div>
                       </td>
@@ -455,6 +509,53 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
         )}
       </main>
 
+      {/* Ban-reason modal */}
+      {banTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setBanTarget(null)}
+        >
+          <div
+            className="bg-[#141414] border border-rose-500/20 rounded-sm w-full max-w-md p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 border-b border-white/10 pb-3 mb-4">
+              <Ban size={16} className="text-rose-400" />
+              <h3 className="font-serif text-base text-white">
+                Заблокировать: {banTarget.fullName || banTarget.name}
+              </h3>
+            </div>
+            <label className="block text-[8px] uppercase font-bold tracking-wider text-gray-500 font-mono mb-1">
+              Причина блокировки
+            </label>
+            <textarea
+              rows={3}
+              value={banReason}
+              onChange={(e) => setBanReason(e.target.value)}
+              placeholder="Например: нарушение правил платформы…"
+              className="w-full text-xs p-3 bg-white/5 border border-white/10 rounded text-white focus:outline-none focus:border-rose-400/50 resize-none"
+            />
+            <p className="text-[9px] text-gray-500 font-mono mt-1.5">
+              Причина будет показана пользователю на экране блокировки.
+            </p>
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => setBanTarget(null)}
+                className="flex-1 border border-white/15 text-gray-400 hover:bg-white/5 text-[10px] uppercase font-bold tracking-widest py-2.5 rounded transition-all cursor-pointer"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={confirmBan}
+                className="flex-1 bg-rose-500/20 border border-rose-500/40 text-rose-200 hover:bg-rose-500/30 text-[10px] uppercase font-bold tracking-widest py-2.5 rounded transition-all cursor-pointer"
+              >
+                Заблокировать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Register realtor modal */}
       {showRegister && (
         <div
@@ -479,24 +580,38 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
 
             <form onSubmit={submitRegister} className="space-y-3 text-xs">
               {[
-                { k: 'fullName', label: 'ФИО *', type: 'text' },
-                { k: 'username', label: 'Логин *', type: 'text' },
-                { k: 'password', label: 'Пароль *', type: 'text' },
-                { k: 'companyName', label: 'Компания', type: 'text' },
-                { k: 'phoneNumber', label: 'Телефон', type: 'text' },
-              ].map((f) => (
-                <div key={f.k} className="space-y-1">
-                  <label className="block text-[8px] uppercase font-bold tracking-wider text-gray-500 font-mono">
-                    {f.label}
-                  </label>
-                  <input
-                    type={f.type}
-                    value={reg[f.k]}
-                    onChange={(e) => setReg((r) => ({ ...r, [f.k]: e.target.value }))}
-                    className="w-full p-2.5 bg-white/5 border border-white/10 rounded text-white focus:outline-none focus:border-rose-400/50 font-mono"
-                  />
-                </div>
-              ))}
+                { k: 'fullName', label: 'ФИО *' },
+                { k: 'username', label: 'Логин *' },
+                { k: 'password', label: 'Пароль *', isPassword: true },
+                { k: 'companyName', label: 'Компания' },
+                { k: 'phoneNumber', label: 'Телефон' },
+              ].map((f) => {
+                const inputCls =
+                  'w-full p-2.5 bg-white/5 border border-white/10 rounded text-white focus:outline-none focus:border-rose-400/50 font-mono';
+                return (
+                  <div key={f.k} className="space-y-1">
+                    <label className="block text-[8px] uppercase font-bold tracking-wider text-gray-500 font-mono">
+                      {f.label}
+                    </label>
+                    {f.isPassword ? (
+                      <PasswordInput
+                        value={reg[f.k]}
+                        onChange={(e) => setReg((r) => ({ ...r, [f.k]: e.target.value }))}
+                        className={inputCls}
+                        iconClassName="text-gray-500 hover:text-white"
+                        placeholder=""
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={reg[f.k]}
+                        onChange={(e) => setReg((r) => ({ ...r, [f.k]: e.target.value }))}
+                        className={inputCls}
+                      />
+                    )}
+                  </div>
+                );
+              })}
 
               {regResult && (
                 <p className={`text-[10px] font-mono ${regResult.kind === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>

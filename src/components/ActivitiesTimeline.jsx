@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import PasswordInput from './PasswordInput';
 
 export default function ActivitiesTimeline({
   // Server-side audit trail (read-only — the dashboard never appends to it).
@@ -386,8 +387,8 @@ export default function ActivitiesTimeline({
                   </div>
                   <div>
                     <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Пароль по умолчанию</label>
-                    <input
-                      type="password" required placeholder="••••••••"
+                    <PasswordInput
+                      required
                       value={newAdmin.password} onChange={(e) => setNewAdmin({...newAdmin, password: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                     />
