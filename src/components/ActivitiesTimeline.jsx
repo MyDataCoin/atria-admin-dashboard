@@ -30,7 +30,7 @@ export default function ActivitiesTimeline({
     email: '',
     role: 'Compliance Officer',
     username: '',
-    password: 'admin',
+    password: '',
     permissions: ['AML Checking', 'KYC Verification']
   });
 
@@ -59,7 +59,7 @@ export default function ActivitiesTimeline({
       email: '',
       role: 'Compliance Officer',
       username: '',
-      password: 'admin',
+      password: '',
       permissions: ['AML Checking', 'KYC Verification']
     });
   };

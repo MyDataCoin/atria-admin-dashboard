@@ -7,7 +7,6 @@ export const INITIAL_ADMINS = [
     email: 'a.zuckerberg@atria-rwa.ch',
     role: 'Compliance Officer & AML Chief',
     username: 'admin',
-    password: 'admin', // for ease of demo/use
     avatar: 'AC',
     permissions: ['AML Checking', 'KYC Verification', 'System Management', 'User Control']
   },
@@ -17,7 +16,6 @@ export const INITIAL_ADMINS = [
     email: 'e.borghese@atria-rwa.ch',
     role: 'Senior Property Asset Manager',
     username: 'elena',
-    password: 'admin',
     avatar: 'EB',
     permissions: ['Property Edit', 'Placements Control', 'Payout Issuance']
   },
@@ -27,7 +25,6 @@ export const INITIAL_ADMINS = [
     email: 's.keller@atria-rwa.ch',
     role: 'Smart Contract Developer',
     username: 'stefan',
-    password: 'admin',
     avatar: 'SK',
     permissions: ['Smart Contract Whitelisting', 'Token Minting', 'Security Systems']
   }

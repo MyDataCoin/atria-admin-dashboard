@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { mapHolderFromInvestment, mapPropertyToCreateRequest } from '../api/mappers';
-import { 
+import { safeUrl } from '../utils';
+import {
   Building, 
   MapPin, 
   Calendar, 
@@ -1175,8 +1176,8 @@ export default function PropertiesList({
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <FileText size={16} className="text-[#A38D6D] shrink-0" />
                                 <div className="truncate text-xs">
-                                  {doc.url ? (
-                                    <a href={doc.url} target="_blank" rel="noreferrer" className="font-bold text-gray-900 block truncate hover:text-[#A38D6D] hover:underline">{doc.title}</a>
+                                  {safeUrl(doc.url) ? (
+                                    <a href={safeUrl(doc.url)} target="_blank" rel="noreferrer" className="font-bold text-gray-900 block truncate hover:text-[#A38D6D] hover:underline">{doc.title}</a>
                                   ) : (
                                     <span className="font-bold text-gray-900 block truncate">{doc.title}</span>
                                   )}

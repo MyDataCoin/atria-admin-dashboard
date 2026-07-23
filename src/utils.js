@@ -1,4 +1,14 @@
 /**
+ * Returns a URL safe to use in an `href`/`src`, or `undefined` if the scheme is
+ * not http(s). React does NOT sanitize `href`, so a `javascript:`/`data:` URL
+ * coming from API data would execute on click; only allow web links through.
+ */
+export function safeUrl(url) {
+  if (typeof url !== 'string') return undefined;
+  return /^https?:\/\//i.test(url.trim()) ? url : undefined;
+}
+
+/**
  * Formats a USD amount to the target currency based on specified exchange rates.
  * 1 USD = 0.92 EUR
  * 1 USD = 87.0 KGS

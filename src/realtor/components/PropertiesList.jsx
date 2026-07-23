@@ -4,8 +4,9 @@ import jsPDF from 'jspdf';
 // генерит Tailwind v4, и падает. html-to-image рендерит через SVG и их понимает.
 import { toJpeg } from 'html-to-image';
 import { PDFDocument } from 'pdf-lib';
-import { 
-  Building, 
+import { safeUrl } from '../../utils';
+import {
+  Building,
   Search, 
   Plus, 
   Filter, 
@@ -913,7 +914,7 @@ export default function PropertiesList({
                         selectedProp.documents.map((doc, idx) => (
                           <a
                             key={doc.id || idx}
-                            href={doc.url}
+                            href={safeUrl(doc.url)}
                             target="_blank"
                             rel="noreferrer"
                             className="flex items-center justify-between gap-3 bg-white border border-gray-100 hover:border-[#A38D6D] p-2.5 rounded-sm transition-colors"
