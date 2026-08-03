@@ -20,6 +20,8 @@ import UsersAndKyc from './components/UsersAndKyc';
 import NewsAndReports from './components/NewsAndReports';
 import ActivitiesTimeline from './components/ActivitiesTimeline';
 import SupportTickets from './components/SupportTickets';
+import Applications from './components/Applications';
+import HolderRegistry from './components/HolderRegistry';
 
 // Load default mock datasets
 import { 
@@ -335,6 +337,19 @@ export default function AdminApp({ currentUser, onLogout }) {
             onAddLog={handleAddAuditLog}
           />
         );
+      case 'applications':
+        // Read fresh from /investments on mount: reservations lapse while the screen is open,
+        // and the operator must never decide against a stale queue.
+        return (
+          <Applications
+            properties={properties}
+            investors={investors}
+            currency={currency}
+            onAddLog={handleAddAuditLog}
+          />
+        );
+      case 'registry':
+        return <HolderRegistry properties={properties} onAddLog={handleAddAuditLog} />;
       case 'investors':
         return (
           <PayoutsAndInvestors 

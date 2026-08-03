@@ -111,9 +111,24 @@ export const properties = {
 // ---- Investments ----------------------------------------------------------
 
 export const investments = {
+  // There is no payment on the platform: an application is reserved, then an operator
+  // approves or rejects it. The former POST /investments/{id}/payments endpoint is gone.
   create: (body) => request('/investments', { method: 'POST', body }), // { propertyId, amount }
-  startPayment: (investmentId, provider) =>
-    request(`/investments/${investmentId}/payments`, { method: 'POST', body: { provider } }),
+
+  // Operator queue. The one investments read that crosses investor boundaries, hence Admin-only.
+  // status: Reserved | Active | Rejected | Cancelled | Expired.
+  list: ({ status, propertyId, take } = {}) => {
+    const query = new URLSearchParams();
+    if (status) query.set('status', status);
+    if (propertyId) query.set('propertyId', propertyId);
+    if (take) query.set('take', String(take));
+    const suffix = query.toString();
+    return request(`/investments${suffix ? `?${suffix}` : ''}`);
+  },
+
+  approve: (id) => request(`/investments/${id}/approve`, { method: 'POST' }),
+  reject: (id, reason) => request(`/investments/${id}/reject`, { method: 'POST', body: { reason } }),
+  cancel: (id) => request(`/investments/${id}/cancel`, { method: 'POST' }),
   mine: () => request('/investments/me'),
   portfolio: () => request('/investments/portfolio'),
   get: (id) => request(`/investments/${id}`),
@@ -273,10 +288,49 @@ export const appeals = {
   submit: (body) => request('/appeals', { method: 'POST', body, auth: false }),
 };
 
+// ---- Holder register ------------------------------------------------------
+
+// Who holds what in an issue now, and the frozen snapshots recording who held what
+// at a given cut. Admin, collateral manager and auditor read it; only the operator
+// cuts a snapshot.
+export const holders = {
+  // search matches an address fragment or a whole investor id.
+  registry: (propertyId, search) => {
+    const query = new URLSearchParams({ propertyId });
+    if (search) query.set('search', search);
+    return request(`/holders?${query.toString()}`);
+  },
+  snapshots: (propertyId) => request(`/holders/snapshots?propertyId=${propertyId}`),
+  snapshot: (id) => request(`/holders/snapshots/${id}`),
+  // purpose: Payout | Reporting. Idempotent by (property, cut, purpose): asking twice
+  // for the same cut returns the snapshot already taken.
+  createSnapshot: (body) => request('/holders/snapshots', { method: 'POST', body }),
+  // The CSV is rendered server-side, so the operator hands over exactly what the
+  // register holds. `raw` keeps the Response so the caller can read it as a blob —
+  // a plain <a href> would drop the bearer token and get a 401.
+  exportSnapshot: (id) =>
+    request(`/holders/snapshots/${id}/export`, { raw: true }),
+};
+
+// ---- Governance (two-person rule) -----------------------------------------
+
+// Publishing an issue and blocking an investor take two people: one raises the
+// request, a different account decides it.
+export const governance = {
+  pending: () => request('/governance/critical-actions/pending'),
+  decided: (take = 50) => request(`/governance/critical-actions/decided?take=${take}`),
+  approve: (id) => request(`/governance/critical-actions/${id}/approve`, { method: 'POST' }),
+  reject: (id, note) =>
+    request(`/governance/critical-actions/${id}/reject`, { method: 'POST', body: { note } }),
+  withdraw: (id) => request(`/governance/critical-actions/${id}/withdraw`, { method: 'POST' }),
+};
+
 export default {
   auth,
   properties,
   investments,
+  holders,
+  governance,
   kyc,
   consent,
   documents,
