@@ -312,11 +312,36 @@ export const holders = {
     request(`/holders/snapshots/${id}/export`, { raw: true }),
 };
 
+// ---- Payouts --------------------------------------------------------------
+
+// Distributions to the holders of an issue. The platform computes what each holder
+// is owed against a frozen snapshot and records what each payment came back with;
+// it does not move money. A run is created as a draft that authorises nothing and
+// opens for settlement only after a second approval through `governance`.
+export const payouts = {
+  list: (propertyId) => request(`/payouts?propertyId=${propertyId}`),
+  get: (id) => request(`/payouts/${id}`),
+  // body: { snapshotId, kind, method, declaredAmount, currency, note }
+  create: (body) => request('/payouts', { method: 'POST', body }),
+  settle: (id, itemId, settlementReference) =>
+    request(`/payouts/${id}/items/${itemId}/settle`, {
+      method: 'POST',
+      body: { settlementReference },
+    }),
+  fail: (id, itemId, reason) =>
+    request(`/payouts/${id}/items/${itemId}/fail`, { method: 'POST', body: { reason } }),
+  complete: (id) => request(`/payouts/${id}/complete`, { method: 'POST' }),
+  cancel: (id, reason) => request(`/payouts/${id}/cancel`, { method: 'POST', body: { reason } }),
+};
+
 // ---- Governance (two-person rule) -----------------------------------------
 
-// Publishing an issue and blocking an investor take two people: one raises the
-// request, a different account decides it.
+// Starting a distribution, publishing an issue and blocking an investor take two
+// people: one raises the request, a different account decides it.
 export const governance = {
+  // kind: PayoutRun | InvestorBlock | IssuePublication; targetId is the entity.
+  request: (kind, targetId, reason) =>
+    request('/governance/critical-actions', { method: 'POST', body: { kind, targetId, reason } }),
   pending: () => request('/governance/critical-actions/pending'),
   decided: (take = 50) => request(`/governance/critical-actions/decided?take=${take}`),
   approve: (id) => request(`/governance/critical-actions/${id}/approve`, { method: 'POST' }),
@@ -330,6 +355,7 @@ export default {
   properties,
   investments,
   holders,
+  payouts,
   governance,
   kyc,
   consent,
