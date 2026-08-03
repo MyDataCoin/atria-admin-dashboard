@@ -1254,7 +1254,7 @@ export default function PropertiesList({
 
                     {!holdersLoading && holders === null && holdersError && (
                       <div className="text-[10px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
-                        ⚠ {holdersError} — показаны демо-данные
+                        ⚠ {holdersError} — держатели не загружены
                       </div>
                     )}
 

@@ -9,12 +9,8 @@ import ProfileView from './realtor/components/ProfileView';
 import HelpDeskView from './realtor/components/HelpDeskView';
 import DealsView from './realtor/components/DealsView';
 
-// Load default mock datasets for Realtor Panel
-import {
-  INITIAL_REALTORS,
-  INITIAL_PROPERTIES,
-  REALTOR_ACTIONS
-} from './realtor/data';
+// No seed datasets: the workspace fills from the API. A demo activity feed is
+// indistinguishable from a real one, and a realtor acts on what it shows.
 
 import { fetchProperties, fetchInvestorCount } from './realtor/api/properties';
 import { fetchDeals, createDeal } from './realtor/api/deals';
@@ -44,7 +40,7 @@ export default function RealtorApp({ currentUser, onLogout }) {
   const [investorCount, setInvestorCount] = useState(null);
   // Уведомления грузятся с ATRIA API (события сделок), см. useEffect ниже.
   const [notifications, setNotifications] = useState([]);
-  const [realtorActions, setRealtorActions] = useState(REALTOR_ACTIONS);
+  const [realtorActions, setRealtorActions] = useState([]);
   const [selectedPropId, setSelectedPropId] = useState(null);
 
   // Сделки риелтора приходят из ATRIA API (GET /deals/me), см. useEffect ниже.
@@ -54,10 +50,11 @@ export default function RealtorApp({ currentUser, onLogout }) {
 
   // Active realtor details (binds personal and company edits). Seed from the mock
   // profile, then enrich from the real API profile once it loads.
-  const [currentRealtor, setCurrentRealtor] = useState(currentUser || INITIAL_REALTORS[0]);
+  const [currentRealtor, setCurrentRealtor] = useState(currentUser);
 
   // Загружаем каталог объектов из ATRIA API. Эндпоинт анонимный, поэтому вход не нужен.
-  // Если API недоступен — показываем мок-данные, чтобы кабинет не оставался пустым.
+  // Каталог грузится с сервера. Если запрос не прошёл, список остаётся пустым и показывается
+  // ошибка: демо-объекты в кабинете риелтора неотличимы от настоящих, а по ним заводят сделки.
   useEffect(() => {
     let cancelled = false;
 
@@ -69,8 +66,8 @@ export default function RealtorApp({ currentUser, onLogout }) {
       })
       .catch(() => {
         if (cancelled) return;
-        setProperties(INITIAL_PROPERTIES);
-        setPropertiesError('Каталог загружен из демо-данных: сервер недоступен.');
+        setProperties([]);
+        setPropertiesError('Каталог недоступен: сервер не отвечает. Список пуст — это не значит, что объектов нет.');
       })
       .finally(() => {
         if (!cancelled) setPropertiesLoading(false);

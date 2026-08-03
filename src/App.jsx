@@ -5,7 +5,6 @@ import RealtorApp from './RealtorApp';
 import SuperAdminApp from './SuperAdminApp';
 import PasswordInput from './components/PasswordInput';
 import BlockedScreen from './components/BlockedScreen';
-import { INITIAL_REALTORS } from './realtor/data';
 
 import { RefreshCw } from 'lucide-react';
 
@@ -31,9 +30,9 @@ function userFromToken(token) {
   if (!p) return null;
   const role = roleFromToken(token);
   if (role === 'realtor') {
-    // The realtor profile is fetched later (GET /realtor/me); seed from the mock
-    // profile so the workspace has a name/company before that resolves.
-    return { ...INITIAL_REALTORS[0], id: p.sub || INITIAL_REALTORS[0].id, apiRole: p.role };
+    // The realtor profile is fetched later (GET /realtor/me). Until it resolves the workspace
+    // shows neutral placeholders rather than someone else's name and company.
+    return { id: p.sub, name: '', companyName: '', apiRole: p.role };
   }
   const isSuper = role === 'superadmin';
   return {

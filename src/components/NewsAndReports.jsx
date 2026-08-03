@@ -103,7 +103,7 @@ export default function NewsAndReports({
       )}
       {!loading && error && (
         <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-          ⚠ Лента недоступна — показаны демо-данные. {error}
+          ⚠ Лента недоступна — публикации не загружены. {error}
         </div>
       )}
 

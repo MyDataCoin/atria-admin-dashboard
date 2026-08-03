@@ -153,7 +153,7 @@ export default function ActivitiesTimeline({
           )}
           {!loading && error && (
             <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-              ⚠ Журнал недоступен — показаны демо-данные. {error}
+              ⚠ Журнал недоступен — записи не загружены. {error}
             </div>
           )}
 

@@ -96,7 +96,9 @@ export default function Overview({
       value: stats.totalInvestors,
       icon: Users,
       desc: 'KYC-верифицированные аккаунты',
-      subtext: `${stats.kycVerificationRate}% успешной верификации`,
+      subtext: stats.kycVerificationRate == null
+        ? 'Верификация: данных пока нет'
+        : `${stats.kycVerificationRate}% успешной верификации`,
       color: 'border-l-4 border-emerald-600'
     },
     {

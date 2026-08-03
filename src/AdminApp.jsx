@@ -23,18 +23,9 @@ import SupportTickets from './components/SupportTickets';
 import Applications from './components/Applications';
 import HolderRegistry from './components/HolderRegistry';
 
-// Load default mock datasets
-import { 
-  INITIAL_ADMINS,
-  INITIAL_STATS, 
-  INITIAL_PROPERTIES, 
-  INITIAL_PLACEMENTS,
-  INITIAL_INVESTORS,
-  INITIAL_DOCUMENTS,
-  INITIAL_NEWS_PUBLICATIONS,
-  INITIAL_AUDIT_LOGS,
-  INITIAL_TICKETS
-} from './data';
+// No seed datasets: every panel starts empty and fills from the API. Demo rows that stayed on
+// screen when a request failed were indistinguishable from real ones — an operator could act on a
+// property or an investor that does not exist.
 
 import { Shield } from 'lucide-react';
 
@@ -47,26 +38,25 @@ export default function AdminApp({ currentUser, onLogout }) {
   const [currency, setCurrency] = useState('KGS');
 
   // Fully reactive state for global portfolio stats & ledgers
-  const [admins, setAdmins] = useState(INITIAL_ADMINS);
-  const [stats, setStats] = useState(INITIAL_STATS);
-  const [properties, setProperties] = useState(INITIAL_PROPERTIES);
+  const [admins, setAdmins] = useState([]);
+  const [properties, setProperties] = useState([]);
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [propertiesError, setPropertiesError] = useState('');
-  const [placements, setPlacements] = useState(INITIAL_PLACEMENTS);
-  const [investors, setInvestors] = useState(INITIAL_INVESTORS);
+  const [placements, setPlacements] = useState([]);
+  const [investors, setInvestors] = useState([]);
   const [investorsLoading, setInvestorsLoading] = useState(false);
   const [investorsError, setInvestorsError] = useState('');
   const [realtors, setRealtors] = useState([]);
   const [realtorsLoading, setRealtorsLoading] = useState(false);
   const [realtorsError, setRealtorsError] = useState('');
-  const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
-  const [publications, setPublications] = useState(INITIAL_NEWS_PUBLICATIONS);
+  const [documents, setDocuments] = useState([]);
+  const [publications, setPublications] = useState([]);
   const [publicationsLoading, setPublicationsLoading] = useState(false);
   const [publicationsError, setPublicationsError] = useState('');
-  const [auditLogs, setAuditLogs] = useState(INITIAL_AUDIT_LOGS);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState('');
-  const [tickets, setTickets] = useState(INITIAL_TICKETS);
+  const [tickets, setTickets] = useState([]);
   const [ticketsLoading, setTicketsLoading] = useState(false);
   const [ticketsError, setTicketsError] = useState('');
 
@@ -270,7 +260,8 @@ export default function AdminApp({ currentUser, onLogout }) {
         return (
           <Overview
             stats={{
-              ...stats,
+              // Every figure is derived from what the API returned. Nothing carries over from a
+              // seed object, so an empty dashboard reads as empty rather than as someone's demo.
               totalObjects: properties.length,
               activePlacements: placements.filter(p => p.status === 'active').length,
               totalInvestors: investors.length,
@@ -285,7 +276,14 @@ export default function AdminApp({ currentUser, onLogout }) {
               investedCurrency:
                 investors.flatMap((inv) => inv.holdings || [])[0]?.currency || currency,
               // No payout module exists yet: reporting a distributed total would be inventing one.
-              payoutsDistributed: 0
+              payoutsDistributed: 0,
+              // Share of investors whose verification actually passed; no investors, no rate.
+              kycVerificationRate: investors.length === 0
+                ? null
+                : Math.round(
+                    (investors.filter((inv) => inv.kycStatus === 'Approved').length / investors.length) * 1000
+                  ) / 10,
+              auditLogsCount: auditLogs.length
             }}
             properties={properties}
             placements={placements}
@@ -309,7 +307,7 @@ export default function AdminApp({ currentUser, onLogout }) {
             )}
             {!propertiesLoading && propertiesError && (
               <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                ⚠ API недоступен — показаны демо-данные. {propertiesError}
+                ⚠ API недоступен — список пуст, это не значит, что объектов нет. {propertiesError}
               </div>
             )}
             <PropertiesList
@@ -369,7 +367,7 @@ export default function AdminApp({ currentUser, onLogout }) {
             )}
             {!investorsLoading && investorsError && (
               <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                ⚠ Реестр инвесторов недоступен — показаны демо-данные. {investorsError}
+                ⚠ Реестр инвесторов недоступен — список пуст, это не значит, что инвесторов нет. {investorsError}
               </div>
             )}
             <UsersAndKyc
@@ -390,7 +388,7 @@ export default function AdminApp({ currentUser, onLogout }) {
             )}
             {!ticketsLoading && ticketsError && (
               <div className="text-[11px] font-mono text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-                ⚠ Тикет-деск недоступен — показаны демо-данные. {ticketsError}
+                ⚠ Тикет-деск недоступен — список пуст, это не значит, что обращений нет. {ticketsError}
               </div>
             )}
             {!ticketsLoading && !ticketsError && (
