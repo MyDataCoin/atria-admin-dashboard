@@ -30,7 +30,6 @@ import {
   INITIAL_PROPERTIES, 
   INITIAL_PLACEMENTS,
   INITIAL_INVESTORS,
-  INITIAL_PAYOUTS,
   INITIAL_DOCUMENTS,
   INITIAL_NEWS_PUBLICATIONS,
   INITIAL_AUDIT_LOGS,
@@ -60,7 +59,6 @@ export default function AdminApp({ currentUser, onLogout }) {
   const [realtors, setRealtors] = useState([]);
   const [realtorsLoading, setRealtorsLoading] = useState(false);
   const [realtorsError, setRealtorsError] = useState('');
-  const [payouts, setPayouts] = useState(INITIAL_PAYOUTS);
   const [documents, setDocuments] = useState(INITIAL_DOCUMENTS);
   const [publications, setPublications] = useState(INITIAL_NEWS_PUBLICATIONS);
   const [publicationsLoading, setPublicationsLoading] = useState(false);
@@ -286,11 +284,12 @@ export default function AdminApp({ currentUser, onLogout }) {
               ),
               investedCurrency:
                 investors.flatMap((inv) => inv.holdings || [])[0]?.currency || currency,
-              payoutsDistributed: payouts.filter(p => p.status === 'confirmed').reduce((sum, p) => sum + p.amount, 0)
+              // No payout module exists yet: reporting a distributed total would be inventing one.
+              payoutsDistributed: 0
             }}
             properties={properties}
             placements={placements}
-            payouts={payouts}
+            payouts={[]}
             realtors={realtors}
             realtorsLoading={realtorsLoading}
             realtorsError={realtorsError}
@@ -352,9 +351,7 @@ export default function AdminApp({ currentUser, onLogout }) {
         return <HolderRegistry properties={properties} onAddLog={handleAddAuditLog} />;
       case 'investors':
         return (
-          <PayoutsAndInvestors 
-            payouts={payouts}
-            setPayouts={setPayouts}
+          <PayoutsAndInvestors
             properties={properties}
             investors={investors}
             currency={currency}

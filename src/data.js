@@ -338,52 +338,9 @@ export const INITIAL_INVESTORS = [
   }
 ];
 
-export const INITIAL_PAYOUTS = [
-  {
-    id: 'pay-1',
-    propertyName: 'Вилла Сола Кабиати',
-    propertyId: 'prop-1',
-    amount: 14500,
-    period: 'Июнь 2026',
-    dateCreated: '2026-06-25',
-    status: 'pending', // pending, processing, confirmed
-    transactionsCount: 34,
-    method: 'Smart Contract Distribution'
-  },
-  {
-    id: 'pay-2',
-    propertyName: 'Киотское дзен-святилище',
-    propertyId: 'prop-2',
-    amount: 18400,
-    period: 'Июнь 2026',
-    dateCreated: '2026-06-25',
-    status: 'confirmed',
-    transactionsCount: 41,
-    method: 'Smart Contract Distribution'
-  },
-  {
-    id: 'pay-3',
-    propertyName: 'Монастырь Брунеллески',
-    propertyId: 'prop-3',
-    amount: 9100,
-    period: 'Июнь 2026',
-    dateCreated: '2026-06-25',
-    status: 'confirmed',
-    transactionsCount: 18,
-    method: 'Smart Contract Distribution'
-  },
-  {
-    id: 'pay-4',
-    propertyName: 'Бруталистская вилла на скале',
-    propertyId: 'prop-4',
-    amount: 13200,
-    period: 'Май 2026',
-    dateCreated: '2026-05-25',
-    status: 'confirmed',
-    transactionsCount: 22,
-    method: 'Smart Contract Distribution'
-  }
-];
+// INITIAL_PAYOUTS removed: the payouts screen is driven by real holder snapshots
+// (see PayoutsAndInvestors), and demo rows that looked like settled distributions were the
+// most misleading thing on the panel.
 
 export const INITIAL_DOCUMENTS = [
   {

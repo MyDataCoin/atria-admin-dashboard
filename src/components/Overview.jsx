@@ -102,10 +102,12 @@ export default function Overview({
     {
       id: 'payouts',
       label: 'Выплачено дивидендов',
-      value: formatVal(stats.payoutsDistributed, currency),
+      // The payout module does not exist yet, so there is nothing distributed to report. Showing a
+      // number here would be inventing one; the card stays, empty and honest, until it is built.
+      value: '—',
       icon: Wallet,
       desc: 'Дистрибуция рентного дохода',
-      subtext: `${payouts.filter(p => p.status === 'confirmed').length} закрытых ведомостей`,
+      subtext: 'Модуль выплат ещё не подключён',
       color: 'border-l-4 border-blue-600'
     }
   ];
