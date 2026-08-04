@@ -1,7 +1,8 @@
 // Central HTTP client for the Atria backend.
 //
 // - Base URL comes from VITE_API_BASE_URL (falls back to the public server).
-// - Access/refresh tokens are persisted in localStorage.
+// - The ACCESS token lives in memory only. The REFRESH token is never seen by this code at
+//   all: the API sets it as an HttpOnly cookie, so a script on this origin cannot read it.
 // - Requests attach the Bearer token automatically; on a 401 we transparently try
 //   ONE refresh (POST /auth/refresh) and replay the original request.
 // - Errors are surfaced as ApiError carrying the parsed RFC-7807 ProblemDetails.
@@ -15,28 +16,34 @@ const BASE_URL = import.meta.env.DEV
 
 const API_PREFIX = '/api/v1';
 
-const ACCESS_KEY = 'atria_access_token';
-const REFRESH_KEY = 'atria_refresh_token';
-
 // ---- Token storage --------------------------------------------------------
+//
+// Both tokens used to sit in localStorage. That put a thirty-day refresh token — a full SuperAdmin
+// session — within reach of any script running on this origin: one XSS, or one compromised package
+// in the bundle, and the attacker holds a credential that outlives any password change they can be
+// locked out by. Rotation and reuse detection on the server do not help, because the attacker has a
+// valid token and can rotate it themselves.
+//
+// So: the access token lives in a module-scoped variable and dies with the tab, and the refresh
+// token never reaches JavaScript — the API sets it as HttpOnly;Secure;SameSite=None on /auth, and
+// the browser attaches it to /auth/refresh on its own. `credentials: 'include'` below is what lets
+// it. On reload there is no access token, so the first call 401s and the transparent refresh
+// restores the session from the cookie.
+
+let accessToken = null;
 
 export const tokenStore = {
   get access() {
-    return localStorage.getItem(ACCESS_KEY);
+    return accessToken;
   },
-  get refresh() {
-    return localStorage.getItem(REFRESH_KEY);
-  },
-  set({ accessToken, refreshToken }) {
-    if (accessToken) localStorage.setItem(ACCESS_KEY, accessToken);
-    if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
+  set({ accessToken: token }) {
+    if (token) accessToken = token;
   },
   clear() {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
+    accessToken = null;
   },
   get isAuthenticated() {
-    return !!localStorage.getItem(ACCESS_KEY);
+    return !!accessToken;
   },
 };
 
@@ -69,13 +76,12 @@ export function decodeJwt(token) {
 let refreshInFlight = null;
 
 async function doRefresh() {
-  const refreshToken = tokenStore.refresh;
-  if (!refreshToken) throw new ApiError(401, { title: 'No refresh token' });
-
+  // No body: the refresh token is in the HttpOnly cookie, which `credentials: 'include'` sends.
   const res = await fetch(`${BASE_URL}${API_PREFIX}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
+    credentials: 'include',
+    body: '{}',
   });
 
   if (!res.ok) {
@@ -86,6 +92,26 @@ async function doRefresh() {
   const tokens = await res.json();
   tokenStore.set(tokens);
   return tokens.accessToken;
+}
+
+/**
+ * Coalesces concurrent refreshes into one.
+ *
+ * The previous version cleared the in-flight promise in a `finally` that ran for EVERY awaiting
+ * caller, not just the one that started it. Two requests 401-ing at once therefore raced: the second
+ * could find the slot already cleared and start a second refresh with a token the first had just
+ * rotated away. The server treats a replayed token as a leak and revokes the whole session, so a
+ * page that fired several requests at once could log the user out and file a false compromise
+ * signal on the way. Only the initiator clears the slot here.
+ */
+function refreshOnce() {
+  if (!refreshInFlight) {
+    refreshInFlight = doRefresh().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+
+  return refreshInFlight;
 }
 
 async function safeProblem(res) {
@@ -128,17 +154,23 @@ export async function request(path, opts = {}) {
   const res = await fetch(url, {
     method,
     headers,
+    // Send the refresh cookie. It is scoped to /api/v1/auth, so it rides along only where it is
+    // actually needed and is not attached to ordinary API calls.
+    credentials: 'include',
     body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
   });
 
-  // Transparent single refresh + replay on 401.
-  if (res.status === 401 && auth && !_retried && tokenStore.refresh) {
+  // Transparent single refresh + replay on 401. There is no local refresh token to check for any
+  // more — whether one exists is the cookie's business, and a refresh that has nothing to work with
+  // simply comes back 401.
+  if (res.status === 401 && auth && !_retried) {
     try {
-      refreshInFlight = refreshInFlight || doRefresh();
-      await refreshInFlight;
-    } finally {
-      refreshInFlight = null;
+      await refreshOnce();
+    } catch {
+      // The session is genuinely over; surface the original 401 rather than the refresh failure.
+      throw new ApiError(401, await safeProblem(res));
     }
+
     return request(path, { ...opts, _retried: true });
   }
 

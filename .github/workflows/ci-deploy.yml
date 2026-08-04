@@ -4,7 +4,8 @@ name: CI + Deploy
 # pushes to the default branch (and manual runs). All connection details are GitHub
 # Secrets — nothing sensitive lives in this file.
 #
-# Required secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_PASSWORD
+# Required secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY (key-only — password auth on the
+# production host was removed; it also carries the DB password and provider keys through the same session)
 # (SSH port defaults to 22; auth is password-based.)
 on:
   push:
@@ -46,6 +47,33 @@ jobs:
           path: dist
           retention-days: 7
 
+  security:
+    name: Dependencies & secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: a secret that was committed and later removed is still a leaked secret.
+          fetch-depth: 0
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fails on a high or critical advisory in anything that ships to the browser.
+      - name: Audit runtime dependencies
+        run: npm run audit
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   deploy:
     name: Deploy to server
     runs-on: ubuntu-latest
@@ -71,7 +99,7 @@ jobs:
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           source: "deploy.tar.gz"
           target: "/tmp"
           overwrite: true
@@ -83,7 +111,7 @@ jobs:
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_SSH_PASSWORD }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
           envs: TARGET_DIR
           script: |
             set -euo pipefail

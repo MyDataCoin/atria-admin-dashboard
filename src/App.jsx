@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import api, { decodeJwt, tokenStore } from './api';
 import AdminApp from './AdminApp';
 import RealtorApp from './RealtorApp';
@@ -45,10 +45,34 @@ function userFromToken(token) {
 }
 
 export default function App() {
-  // Restore the session from a token persisted in localStorage; the API client
-  // auto-refreshes the access token so a page reload keeps the user signed in.
+  // The access token lives in memory, so a page reload starts with nothing. The session itself
+  // survives in an HttpOnly cookie the browser holds, so restoring it means asking the server —
+  // see api.auth.restoreSession. Until that answers we render nothing rather than flashing the
+  // login form at someone who is already signed in.
   const [role, setRole] = useState(() => roleFromToken(tokenStore.access));
   const [currentUser, setCurrentUser] = useState(() => userFromToken(tokenStore.access));
+  const [restoringSession, setRestoringSession] = useState(!tokenStore.isAuthenticated);
+
+  useEffect(() => {
+    if (!restoringSession) return undefined;
+
+    let cancelled = false;
+
+    api.auth.restoreSession().then((restored) => {
+      if (cancelled) return;
+
+      if (restored) {
+        setRole(roleFromToken(tokenStore.access));
+        setCurrentUser(userFromToken(tokenStore.access));
+      }
+
+      setRestoringSession(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restoringSession]);
 
   // Authorization form state
   const [loginUser, setLoginUser] = useState('');
@@ -119,12 +143,25 @@ export default function App() {
   // Logout — clears the tokens and returns to the login form. The individual
   // workspaces call this via their onLogout prop after their own bookkeeping.
   const handleLogout = () => {
-    api.auth.logout(); // clears tokens from localStorage
+    // Revokes the refresh token server-side and expires its cookie; clearing only the client's copy
+    // would leave the session usable for the rest of the token's lifetime.
+    api.auth.logout();
     setCurrentUser(null);
     setRole(null);
     setLoginUser('');
     setLoginPass('');
   };
+
+  // --- Still asking the server whether the cookie names a live session ------
+  // Rendering the login form here would flash it at someone who is already signed in, and invite
+  // them to type a password they do not need to.
+  if (restoringSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500">
+        Загрузка…
+      </div>
+    );
+  }
 
   // --- Authenticated: route to the workspace for the account's role ---------
   if (currentUser) {
@@ -219,7 +256,7 @@ export default function App() {
         </form>
 
         <p className="text-[8px] text-center text-gray-600 font-mono">
-          Дешборд определяется по роли учётной записи. Сессия хранится в localStorage.
+          Дешборд определяется по роли учётной записи. Сессия хранится в защищённой cookie.
         </p>
 
       </div>

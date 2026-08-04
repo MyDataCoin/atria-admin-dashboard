@@ -6,8 +6,8 @@ import { request, tokenStore } from './client';
 // ---- Auth (phone-only, Kyrgyzstan +996) -----------------------------------
 
 export const auth = {
-  // Admin/staff login (username + password) -> access + refresh, both persisted so the
-  // client can auto-refresh the access token on 401.
+  // Admin/staff login (username + password). The access token is kept in memory; the refresh
+  // token is set by the server as an HttpOnly cookie and never touches this code.
   adminLogin: async (username, password) => {
     const tokens = await request('/auth/admin/login', {
       method: 'POST',
@@ -18,8 +18,8 @@ export const auth = {
     return tokens;
   },
 
-  // Realtor login (username + password) -> access + refresh, both persisted. Same
-  // shape as adminLogin but a different endpoint; the role is carried in the JWT.
+  // Realtor login (username + password). Same shape as adminLogin but a different endpoint; the
+  // role is carried in the JWT.
   realtorLogin: async (username, password) => {
     const tokens = await request('/auth/realtor/login', {
       method: 'POST',
@@ -34,8 +34,8 @@ export const auth = {
   requestOtp: (phone) =>
     request('/auth/register/phone/request-otp', { method: 'POST', body: { phone }, auth: false }),
 
-  // Step 2: verify the OTP; creates the account on first use. Returns AuthTokensDto.
-  // Also persists the tokens so subsequent calls are authenticated.
+  // Step 2: verify the OTP; creates the account on first use. Returns AuthTokensDto and puts the
+  // access token in memory so subsequent calls are authenticated.
   verifyOtp: async (phone, code) => {
     const tokens = await request('/auth/register/phone/verify-otp', {
       method: 'POST',
@@ -46,18 +46,40 @@ export const auth = {
     return tokens;
   },
 
-  // Rotate refresh -> new access+refresh pair (also persisted).
-  refresh: async (refreshToken = tokenStore.refresh) => {
-    const tokens = await request('/auth/refresh', {
-      method: 'POST',
-      body: { refreshToken },
-      auth: false,
-    });
+  // Rotate the session. No argument: the refresh token is in an HttpOnly cookie the browser sends
+  // on its own, so this code neither holds it nor could read it if it wanted to.
+  refresh: async () => {
+    const tokens = await request('/auth/refresh', { method: 'POST', body: {}, auth: false });
     tokenStore.set(tokens);
     return tokens;
   },
 
-  logout: () => tokenStore.clear(),
+  /**
+   * Restores a session after a page reload.
+   *
+   * The access token lives in memory and is gone after a refresh of the page, but the HttpOnly
+   * cookie is not — so ask the server whether the session is still good. Resolves to true when it
+   * is. This replaces reading a token straight out of localStorage, which is what made the token
+   * readable by any script on the page in the first place.
+   */
+  restoreSession: async () => {
+    try {
+      await auth.refresh();
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  // Ends the session on the SERVER too: revokes the refresh token and expires its cookie. Clearing
+  // only the client's copy would leave the token usable for the rest of its thirty days.
+  logout: async () => {
+    try {
+      await request('/auth/logout', { method: 'POST', body: {}, auth: false });
+    } finally {
+      tokenStore.clear();
+    }
+  },
 };
 
 // ---- Properties -----------------------------------------------------------
