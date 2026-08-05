@@ -1,0 +1,12 @@
+# Findings that have been reviewed and handled. One fingerprint per line
+# (commit:file:rule:line), so a NEW occurrence of the same pattern still fails the build.
+
+# Invented demo values from the seed dataset that was removed in da983b2
+# ("chore(dashboards): drop seed datasets"). They read as `tokenAddress` and are long enough to
+# trip the generic rule, but they are not addresses at all — `0xAtriaCabiati...` is not even hex.
+# Nothing was ever deployed at them and there is no key behind them.
+43dae10a5365c2a4dd5cbf701c614bc4fee1f547:src/data.js:generic-api-key:108
+43dae10a5365c2a4dd5cbf701c614bc4fee1f547:src/data.js:generic-api-key:156
+43dae10a5365c2a4dd5cbf701c614bc4fee1f547:src/data.js:generic-api-key:180
+43dae10a5365c2a4dd5cbf701c614bc4fee1f547:src/data.js:generic-api-key:60
+43dae10a5365c2a4dd5cbf701c614bc4fee1f547:src/data.js:generic-api-key:84
