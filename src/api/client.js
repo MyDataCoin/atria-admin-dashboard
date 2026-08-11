@@ -12,7 +12,7 @@
 // directly (requires backend CORS or same-domain hosting) via VITE_API_BASE_URL.
 const BASE_URL = import.meta.env.DEV
   ? ''
-  : (import.meta.env.VITE_API_BASE_URL || 'https://atria-api.eaysdev.online').replace(/\/+$/, '');
+  : (import.meta.env.VITE_API_BASE_URL || 'https://api.atria.kg').replace(/\/+$/, '');
 
 const API_PREFIX = '/api/v1';
 

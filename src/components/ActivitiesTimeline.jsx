@@ -358,7 +358,7 @@ export default function ActivitiesTimeline({
                   <div>
                     <label className="block text-[8px] uppercase font-bold text-gray-400 tracking-wider mb-1">Email</label>
                     <input
-                      type="email" required placeholder="name@atria-rwa.ch"
+                      type="email" required placeholder="name@atria.kg"
                       value={newAdmin.email} onChange={(e) => setNewAdmin({...newAdmin, email: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                     />

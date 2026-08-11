@@ -8,7 +8,7 @@ export default defineConfig(({mode}) => {
   // VITE_API_PROXY_TARGET (which points the dev proxy at the backend that has the
   // seeded accounts) is picked up from .env, not just the shell environment.
   const env = {...process.env, ...loadEnv(mode, process.cwd(), '')};
-  const proxyTarget = env.VITE_API_PROXY_TARGET || 'https://atria-api.eaysdev.online';
+  const proxyTarget = env.VITE_API_PROXY_TARGET || 'https://api.atria.kg';
   return {
     plugins: [react(), tailwindcss()],
     resolve: {

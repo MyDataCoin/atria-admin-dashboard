@@ -781,7 +781,7 @@ export default function DealsView({
                     <p className="font-bold text-gray-700">Лицензированный брокер RWA</p>
                     <p>Atria Crypto-Property Portal</p>
                     <p>Лимассол, Кипр</p>
-                    <p>support@atria-rwa.io</p>
+                    <p>support@atria.kg</p>
                   </div>
                 </div>
 
