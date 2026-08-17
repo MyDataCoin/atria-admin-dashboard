@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../api';
 import {
   mapHolderFromInvestment,
+  mapBuildingFromApi,
   mapBuildingToCreateRequest,
   mapUnitToCreateRequest,
   mapUnitToUpdateRequest,
@@ -33,7 +34,8 @@ import {
   Megaphone,
   Undo2,
   Play,
-  Pause
+  Pause,
+  ChevronDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -115,9 +117,11 @@ export default function PropertiesList({
   const [formUnits, setFormUnits] = useState([]);
   // Progress line while the create flow walks building -> photos -> unit 1 -> unit 2 -> …
   const [saveProgress, setSaveProgress] = useState('');
-  // id -> name of every building, so a unit card can say which building it sits in. GET /properties
-  // carries only buildingId; the names live on GET /buildings.
-  const [buildingNames, setBuildingNames] = useState({});
+  // Every building (ЖК / здание) from GET /buildings. The list groups units under their building,
+  // so we need the whole DTO here, not just the name: GET /properties carries only buildingId.
+  const [buildings, setBuildings] = useState([]);
+  // Buildings collapsed by the admin. Default is expanded, so a freshly registered object is visible.
+  const [collapsedBuildings, setCollapsedBuildings] = useState(() => new Set());
   const [selectedProp, setSelectedProp] = useState(null);
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   // Real investor shares for the opened property (from backend). null = not loaded → demo fallback.
@@ -284,10 +288,10 @@ export default function PropertiesList({
       .list()
       .then((list) => {
         if (cancelled || !Array.isArray(list)) return;
-        setBuildingNames(Object.fromEntries(list.map((b) => [b.id, b.name])));
+        setBuildings(list.map(mapBuildingFromApi));
       })
       .catch(() => {
-        /* names are decoration — a failed fetch just leaves the badge off */
+        /* a failed fetch just falls back to the flat list of units */
       });
     return () => {
       cancelled = true;
@@ -792,6 +796,222 @@ export default function PropertiesList({
     return properties.filter(p => p.status === statusFilter);
   };
 
+  const buildingNames = useMemo(
+    () => Object.fromEntries(buildings.map((b) => [b.id, b.name])),
+    [buildings],
+  );
+
+  // The registry is a list of BUILDINGS holding their units, not a flat wall of apartments. A unit
+  // whose building is missing from GET /buildings (or a standalone issue) still shows on its own,
+  // so nothing can silently disappear from the registry.
+  const groupedView = useMemo(() => {
+    const filtered = getFilteredProperties();
+    const unitsByBuilding = new Map();
+    const standalone = [];
+    filtered.forEach((p) => {
+      if (p.buildingId && buildingNames[p.buildingId]) {
+        if (!unitsByBuilding.has(p.buildingId)) unitsByBuilding.set(p.buildingId, []);
+        unitsByBuilding.get(p.buildingId).push(p);
+      } else {
+        standalone.push(p);
+      }
+    });
+    // A building with no unit in the current filter is still listed (empty), so a freshly created
+    // object never looks lost — except while a status filter is on, where it would be noise.
+    const groups = buildings
+      .map((b) => ({ building: b, units: unitsByBuilding.get(b.id) || [] }))
+      .filter((g) => g.units.length > 0 || statusFilter === 'all');
+    return { groups, standalone };
+  }, [properties, buildings, buildingNames, statusFilter]);
+
+  // One registry card. Used both inside a building group and for standalone issues, so a unit
+  // looks the same wherever it is listed.
+  const renderPropertyCard = (prop) => {
+  const propDocsCount =
+    (Array.isArray(prop.documents) ? prop.documents.length : 0) +
+    documents.filter(d => d.propertyId === prop.id).length;
+
+  return (
+    <div
+      key={prop.id}
+      onClick={() => { setSelectedProp(prop); setActiveSubTab('info'); setActiveImgIndex(0); }}
+      className="bg-white border border-gray-100 hover:border-[#A38D6D] rounded-sm overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group"
+    >
+      {/* Image & Header */}
+      <div className="relative h-44 w-full bg-gray-100 overflow-hidden">
+        <img 
+          src={(prop.images && prop.images.length > 0) ? prop.images[0] : prop.image} 
+          alt={prop.name}
+          className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
+          referrerPolicy="no-referrer"
+        />
+        
+        {/* Visual state badge */}
+        <span className={`absolute top-3 left-3 text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs ${
+          prop.status === 'active' ? 'bg-emerald-600 text-white' :
+          prop.status === 'coming_soon' ? 'bg-sky-600 text-white' :
+          prop.status === 'draft' ? 'bg-amber-500 text-white' :
+          'bg-gray-500 text-white'
+        }`}>
+          {prop.status === 'active' ? 'В портфеле' :
+           prop.status === 'coming_soon' ? 'Скоро в продаже' :
+           prop.status === 'draft' ? 'Черновик' : 'Распродан'}
+        </span>
+
+        {/* Paused badge — sales temporarily halted */}
+        {isPaused(prop) && (
+          <span className="absolute top-3 right-3 flex items-center gap-1 bg-amber-500 text-white text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs">
+            <Pause size={9} />
+            Приостановлен
+          </span>
+        )}
+
+        {prop.type && (
+          <span className="absolute bottom-3 right-3 bg-[#111111]/80 backdrop-blur-xs text-white text-[8px] font-mono tracking-widest px-2.5 py-1 uppercase rounded">
+            {prop.type}
+          </span>
+        )}
+      </div>
+
+      {/* Body Details */}
+      <div className="p-5 flex-1 flex flex-col justify-between">
+        <div>
+          {(prop.city || prop.country) && (
+            <div className="flex items-center gap-1 text-[10px] text-[#A38D6D] font-bold font-mono uppercase tracking-wider">
+              <MapPin size={10} />
+              <span>{[prop.city, prop.country].filter(Boolean).join(', ')}</span>
+            </div>
+          )}
+
+          <h3 className="text-sm font-serif font-bold text-gray-900 mt-1 leading-tight group-hover:text-[#A38D6D] transition-colors">
+            {prop.name}
+          </h3>
+
+          {(prop.type || prop.completionYear) && (
+            <p className="text-[11px] text-gray-400 mt-1">
+              {[prop.type, prop.completionYear ? `Год: ${prop.completionYear}` : null].filter(Boolean).join(' • ')}
+            </p>
+          )}
+
+          {prop.buildingId && buildingNames[prop.buildingId] && (
+            <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
+              <Building size={10} className="text-gray-400" />
+              {buildingNames[prop.buildingId]}
+            </p>
+          )}
+
+          {/* Что это за помещение внутри здания (у самостоятельных выпусков полей нет). */}
+          {prop.unitType && (
+            <p className="text-[10px] font-mono text-[#A38D6D] mt-1.5">
+              {[
+                UNIT_TYPE_LABELS[prop.unitType] || 'Помещение',
+                prop.unitNumber ? `№${prop.unitNumber}` : null,
+                prop.roomCount ? `${prop.roomCount}-комн.` : null,
+                prop.totalAreaSqM ? `${Number(prop.totalAreaSqM).toFixed(2)} м²` : null,
+                prop.floorNumber != null ? `${prop.floorNumber} эт.` : null,
+              ].filter(Boolean).join(' • ')}
+            </p>
+          )}
+        </div>
+
+        {/* Readouts: token economics for API/tokenized objects, else object info */}
+        <div className="grid grid-cols-2 gap-4 border-t border-gray-50 pt-4 mt-4 text-[11px]">
+          {prop.tokenPrice != null ? (
+            <>
+              <div>
+                <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Цена токена</span>
+                <span className="font-bold font-mono text-gray-800">{formatMoney(prop.tokenPrice, prop.currency)}</span>
+              </div>
+              <div>
+                <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Доступно / Всего</span>
+                <span className="font-bold font-mono text-gray-800">
+                  {(prop.availableTokens ?? 0).toLocaleString()} / {(prop.totalTokens ?? 0).toLocaleString()}
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Застройщик</span>
+                <span className="font-bold text-gray-800 truncate block">{prop.developer || '—'}</span>
+              </div>
+              <div>
+                <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Этажность</span>
+                <span className="font-bold font-mono text-gray-800">{prop.floors ? `${prop.floors} эт.` : '—'}</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Sold progress: how much of the total token supply is already bought */}
+        {prop.totalTokens != null && prop.totalTokens > 0 && (() => {
+          const sold = Math.max(0, Math.min(100,
+            ((prop.totalTokens - (prop.availableTokens ?? prop.totalTokens)) / prop.totalTokens) * 100));
+          return (
+            <div className="mt-4">
+              <div className="flex justify-between items-center text-[9px] font-mono mb-1">
+                <span className="uppercase tracking-wider text-gray-400 font-semibold">Продано долей</span>
+                <span className="font-bold text-gray-700">{sold.toFixed(2)}%</span>
+              </div>
+              <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
+                <div className="h-full bg-[#A38D6D] transition-all duration-500" style={{ width: `${sold}%` }} />
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Admin metadata */}
+        <div className="mt-4 pt-3 border-t border-dashed border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
+          <span className="flex items-center gap-1">
+            <FileText size={12} className="text-[#A38D6D]" />
+            {propDocsCount} док.
+          </span>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={(e) => handleOpenEdit(prop, e)}
+              className="flex items-center gap-1 px-2 py-1 text-gray-600 hover:text-white hover:bg-[#A38D6D] border border-gray-200 hover:border-[#A38D6D] rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+              title="Редактировать параметры"
+            >
+              <Edit3 size={11} />
+              <span>Изменить</span>
+            </button>
+            {prop.status === 'draft' && (
+              <button
+                onClick={(e) => handleAnnounceProperty(prop.id, e)}
+                className="flex items-center gap-1 px-2 py-1 text-sky-700 hover:text-white hover:bg-sky-600 border border-sky-200 hover:border-sky-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                title="Пометить «Скоро в продаже» — покажется на сайте в категории «Скоро»"
+              >
+                <Megaphone size={11} />
+                <span>Скоро</span>
+              </button>
+            )}
+            {prop.status === 'coming_soon' && (
+              <>
+                <button
+                  onClick={(e) => handlePublishProperty(prop.id, e)}
+                  className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                  title="Опубликовать — открыть к покупке на сайте"
+                >
+                  <Rocket size={11} />
+                  <span>Опубликовать</span>
+                </button>
+                <button
+                  onClick={(e) => handleUnannounceProperty(prop.id, e)}
+                  className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                  title="Вернуть в черновик — скрыть с сайта"
+                >
+                  <Undo2 size={13} />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  };
+
   return (
     <div className="space-y-8 font-sans text-left">
       
@@ -847,193 +1067,84 @@ export default function PropertiesList({
         })}
       </div>
 
-      {/* Grid of Real Estate Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {getFilteredProperties().map((prop) => {
-          const propDocsCount =
-            (Array.isArray(prop.documents) ? prop.documents.length : 0) +
-            documents.filter(d => d.propertyId === prop.id).length;
-
+      {/* Registry: every building with the units registered inside it. */}
+      <div className="space-y-8">
+        {groupedView.groups.map(({ building, units }) => {
+          const collapsed = collapsedBuildings.has(building.id);
           return (
-            <div
-              key={prop.id}
-              onClick={() => { setSelectedProp(prop); setActiveSubTab('info'); setActiveImgIndex(0); }}
-              className="bg-white border border-gray-100 hover:border-[#A38D6D] rounded-sm overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group"
-            >
-              {/* Image & Header */}
-              <div className="relative h-44 w-full bg-gray-100 overflow-hidden">
-                <img 
-                  src={(prop.images && prop.images.length > 0) ? prop.images[0] : prop.image} 
-                  alt={prop.name}
-                  className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
+            <div key={building.id} className="border border-gray-200 rounded-sm bg-gray-50/40 overflow-hidden">
+              {/* Building header — the physical object; it issues no tokens of its own. */}
+              <div className="flex items-start gap-4 p-4 bg-white border-b border-gray-150">
+                <img
+                  src={building.image}
+                  alt={building.name}
+                  className="w-24 h-20 object-cover rounded-sm bg-gray-100 shrink-0"
                   referrerPolicy="no-referrer"
                 />
-                
-                {/* Visual state badge */}
-                <span className={`absolute top-3 left-3 text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs ${
-                  prop.status === 'active' ? 'bg-emerald-600 text-white' :
-                  prop.status === 'coming_soon' ? 'bg-sky-600 text-white' :
-                  prop.status === 'draft' ? 'bg-amber-500 text-white' :
-                  'bg-gray-500 text-white'
-                }`}>
-                  {prop.status === 'active' ? 'В портфеле' :
-                   prop.status === 'coming_soon' ? 'Скоро в продаже' :
-                   prop.status === 'draft' ? 'Черновик' : 'Распродан'}
-                </span>
-
-                {/* Paused badge — sales temporarily halted */}
-                {isPaused(prop) && (
-                  <span className="absolute top-3 right-3 flex items-center gap-1 bg-amber-500 text-white text-[8px] font-mono font-bold uppercase tracking-wider px-2 py-1 rounded shadow-xs">
-                    <Pause size={9} />
-                    Приостановлен
+                <div className="flex-1 min-w-0">
+                  <span className="text-[9px] uppercase font-bold tracking-widest text-[#A38D6D] flex items-center gap-1">
+                    <Building size={10} />
+                    Здание
                   </span>
-                )}
-
-                {prop.type && (
-                  <span className="absolute bottom-3 right-3 bg-[#111111]/80 backdrop-blur-xs text-white text-[8px] font-mono tracking-widest px-2.5 py-1 uppercase rounded">
-                    {prop.type}
-                  </span>
-                )}
-              </div>
-
-              {/* Body Details */}
-              <div className="p-5 flex-1 flex flex-col justify-between">
-                <div>
-                  {(prop.city || prop.country) && (
-                    <div className="flex items-center gap-1 text-[10px] text-[#A38D6D] font-bold font-mono uppercase tracking-wider">
-                      <MapPin size={10} />
-                      <span>{[prop.city, prop.country].filter(Boolean).join(', ')}</span>
-                    </div>
-                  )}
-
-                  <h3 className="text-sm font-serif font-bold text-gray-900 mt-1 leading-tight group-hover:text-[#A38D6D] transition-colors">
-                    {prop.name}
+                  <h3 className="text-base font-serif font-bold text-gray-900 leading-tight mt-0.5 truncate">
+                    {building.name}
                   </h3>
-
-                  {(prop.type || prop.completionYear) && (
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      {[prop.type, prop.completionYear ? `Год: ${prop.completionYear}` : null].filter(Boolean).join(' • ')}
-                    </p>
-                  )}
-
-                  {prop.buildingId && buildingNames[prop.buildingId] && (
-                    <p className="text-[10px] text-gray-500 mt-1 flex items-center gap-1">
-                      <Building size={10} className="text-gray-400" />
-                      {buildingNames[prop.buildingId]}
-                    </p>
-                  )}
-
-                  {/* Что это за помещение внутри здания (у самостоятельных выпусков полей нет). */}
-                  {prop.unitType && (
-                    <p className="text-[10px] font-mono text-[#A38D6D] mt-1.5">
-                      {[
-                        UNIT_TYPE_LABELS[prop.unitType] || 'Помещение',
-                        prop.unitNumber ? `№${prop.unitNumber}` : null,
-                        prop.roomCount ? `${prop.roomCount}-комн.` : null,
-                        prop.totalAreaSqM ? `${Number(prop.totalAreaSqM).toFixed(2)} м²` : null,
-                        prop.floorNumber != null ? `${prop.floorNumber} эт.` : null,
-                      ].filter(Boolean).join(' • ')}
-                    </p>
-                  )}
+                  <p className="text-[10px] text-gray-500 font-mono mt-1 truncate">
+                    {[building.city, building.address, building.developer,
+                      building.floors ? `${building.floors} эт.` : null,
+                      building.completionYear ? `Год: ${building.completionYear}` : null,
+                    ].filter(Boolean).join(' • ') || '—'}
+                  </p>
                 </div>
-
-                {/* Readouts: token economics for API/tokenized objects, else object info */}
-                <div className="grid grid-cols-2 gap-4 border-t border-gray-50 pt-4 mt-4 text-[11px]">
-                  {prop.tokenPrice != null ? (
-                    <>
-                      <div>
-                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Цена токена</span>
-                        <span className="font-bold font-mono text-gray-800">{formatMoney(prop.tokenPrice, prop.currency)}</span>
-                      </div>
-                      <div>
-                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Доступно / Всего</span>
-                        <span className="font-bold font-mono text-gray-800">
-                          {(prop.availableTokens ?? 0).toLocaleString()} / {(prop.totalTokens ?? 0).toLocaleString()}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Застройщик</span>
-                        <span className="font-bold text-gray-800 truncate block">{prop.developer || '—'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Этажность</span>
-                        <span className="font-bold font-mono text-gray-800">{prop.floors ? `${prop.floors} эт.` : '—'}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-
-                {/* Sold progress: how much of the total token supply is already bought */}
-                {prop.totalTokens != null && prop.totalTokens > 0 && (() => {
-                  const sold = Math.max(0, Math.min(100,
-                    ((prop.totalTokens - (prop.availableTokens ?? prop.totalTokens)) / prop.totalTokens) * 100));
-                  return (
-                    <div className="mt-4">
-                      <div className="flex justify-between items-center text-[9px] font-mono mb-1">
-                        <span className="uppercase tracking-wider text-gray-400 font-semibold">Продано долей</span>
-                        <span className="font-bold text-gray-700">{sold.toFixed(2)}%</span>
-                      </div>
-                      <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
-                        <div className="h-full bg-[#A38D6D] transition-all duration-500" style={{ width: `${sold}%` }} />
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Admin metadata */}
-                <div className="mt-4 pt-3 border-t border-dashed border-gray-100 flex items-center justify-between text-[10px] text-gray-500 font-mono">
-                  <span className="flex items-center gap-1">
-                    <FileText size={12} className="text-[#A38D6D]" />
-                    {propDocsCount} док.
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-[10px] font-mono text-gray-500">
+                    {units.length} из {building.unitCount || units.length} помещ.
                   </span>
-                  
-                  <div className="flex gap-2">
-                    <button
-                      onClick={(e) => handleOpenEdit(prop, e)}
-                      className="flex items-center gap-1 px-2 py-1 text-gray-600 hover:text-white hover:bg-[#A38D6D] border border-gray-200 hover:border-[#A38D6D] rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
-                      title="Редактировать параметры"
-                    >
-                      <Edit3 size={11} />
-                      <span>Изменить</span>
-                    </button>
-                    {prop.status === 'draft' && (
-                      <button
-                        onClick={(e) => handleAnnounceProperty(prop.id, e)}
-                        className="flex items-center gap-1 px-2 py-1 text-sky-700 hover:text-white hover:bg-sky-600 border border-sky-200 hover:border-sky-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
-                        title="Пометить «Скоро в продаже» — покажется на сайте в категории «Скоро»"
-                      >
-                        <Megaphone size={11} />
-                        <span>Скоро</span>
-                      </button>
-                    )}
-                    {prop.status === 'coming_soon' && (
-                      <>
-                        <button
-                          onClick={(e) => handlePublishProperty(prop.id, e)}
-                          className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
-                          title="Опубликовать — открыть к покупке на сайте"
-                        >
-                          <Rocket size={11} />
-                          <span>Опубликовать</span>
-                        </button>
-                        <button
-                          onClick={(e) => handleUnannounceProperty(prop.id, e)}
-                          className="p-1 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
-                          title="Вернуть в черновик — скрыть с сайта"
-                        >
-                          <Undo2 size={13} />
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCollapsedBuildings((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(building.id)) next.delete(building.id); else next.add(building.id);
+                      return next;
+                    })}
+                    className="p-1.5 text-gray-400 hover:text-[#A38D6D] border border-gray-200 rounded cursor-pointer"
+                    title={collapsed ? 'Показать помещения' : 'Свернуть'}
+                  >
+                    <ChevronDown size={14} className={collapsed ? "-rotate-90 transition-transform" : "transition-transform"} />
+                  </button>
                 </div>
               </div>
+
+              {!collapsed && (
+                <div className="p-4">
+                  {units.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 font-mono py-4 text-center">
+                      В этом здании ещё нет помещений.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {units.map(renderPropertyCard)}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
+
+        {/* Standalone issues: not attached to any building. */}
+        {groupedView.standalone.length > 0 && (
+          <div>
+            {groupedView.groups.length > 0 && (
+              <span className="block text-[9px] uppercase font-bold tracking-widest text-gray-400 mb-3">
+                Отдельные выпуски (вне здания)
+              </span>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {groupedView.standalone.map(renderPropertyCard)}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Selected Property Detail Bottom/Side Modal Panel */}
