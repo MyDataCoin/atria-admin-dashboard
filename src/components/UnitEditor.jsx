@@ -41,8 +41,11 @@ const num = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
-const inputClass =
-  'w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white';
+// Width is deliberately NOT part of the base: `w-full` beats `w-28` in the cascade regardless of the
+// order the classes are concatenated in, which would collapse any narrower field sharing a flex row.
+const inputBase =
+  'p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white';
+const inputClass = `w-full ${inputBase}`;
 const labelClass = 'block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1';
 
 /**
@@ -205,20 +208,27 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
           </span>
         </div>
 
+        <div className="flex items-center gap-2 mb-1">
+          <span className={`${labelClass} flex-1 min-w-0 mb-0`}>Название помещения</span>
+          <span className={`${labelClass} w-28 shrink-0 mb-0`}>Площадь</span>
+          <span className="w-5" />
+          <span className="w-[13px]" />
+        </div>
+
         <div className="space-y-2">
           {(unit.rooms || []).map((room, ri) => (
             <div key={ri} className="flex items-center gap-2">
               <input
-                type="text" placeholder="Кухня+Столовая"
+                type="text" placeholder="Кухня+Столовая / Спальня / Ванная"
                 value={room.name}
                 onChange={(e) => setRoom(ri, { name: e.target.value })}
-                className={`${inputClass} flex-1`}
+                className={`${inputBase} flex-1 min-w-0`}
               />
               <input
                 type="number" min="0" step="0.01" placeholder="28.68"
                 value={room.areaSqM}
                 onChange={(e) => setRoom(ri, { areaSqM: e.target.value })}
-                className={`${inputClass} w-28 font-mono`}
+                className={`${inputBase} w-28 shrink-0 font-mono`}
               />
               <span className="text-[9px] font-mono text-gray-400 w-5">м²</span>
               <button
