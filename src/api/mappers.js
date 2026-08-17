@@ -79,6 +79,21 @@ export function mapPropertyFromApi(p) {
       ? p.documents.map((d) => ({ id: d.id, fileName: d.fileName, url: d.url, contentType: d.contentType }))
       : [],
 
+    // Unit inside a building (null / '' for a standalone issue). The building itself issues
+    // nothing — these fields describe WHICH apartment or garage this issue is.
+    buildingId: p.buildingId || null,
+    unitType: p.unitType && p.unitType !== 'unspecified' ? p.unitType : '',
+    unitNumber: p.unitNumber || '',
+    floorNumber: p.floorNumber ?? null,
+    roomCount: p.roomCount ?? null,
+    totalAreaSqM: p.totalAreaSqM ?? null,
+    rooms: Array.isArray(p.rooms)
+      ? p.rooms.map((r) => ({ id: r.id, name: r.name, areaSqM: r.areaSqM }))
+      : [],
+    // Sum of the rooms as computed by the backend — compare with totalAreaSqM to flag a plan
+    // that does not add up. The server deliberately does not reject a mismatch.
+    roomsAreaSqM: p.roomsAreaSqM ?? 0,
+
     _source: 'api',
   };
 }
@@ -472,6 +487,10 @@ export function mapPublicationToCreateRequest({ type, title, summary, propertyId
  * Dashboard create-form data -> CreatePropertyRequest (swagger).
  * Only the fields the backend accepts are sent.
  */
+/**
+ * Standalone property form -> POST /properties body. Kept for issues that are NOT a unit of a
+ * building; the admin create form builds units with mapUnitToCreateRequest instead.
+ */
 export function mapPropertyToCreateRequest(form) {
   const tokenPrice = Number(form.tokenPrice ?? 0);
   const totalTokens = Number(form.totalTokens ?? 0);
@@ -491,5 +510,130 @@ export function mapPropertyToCreateRequest(form) {
     yearBuilt: form.completionYear != null && form.completionYear !== '' ? Number(form.completionYear) : null,
     developer: form.developer || null,
     floors: form.floors != null && form.floors !== '' ? Number(form.floors) : null,
+    // Unit fields — sent only when the form is creating a unit of a building.
+    buildingId: form.buildingId || null,
+    unitType: form.unitType || null,
+    unitNumber: form.unitNumber || null,
+    floorNumber: numOrNull(form.floorNumber),
+    roomCount: numOrNull(form.roomCount),
+    totalAreaSqM: numOrNull(form.totalAreaSqM),
+    rooms: mapRoomsToApi(form.rooms),
+  };
+}
+
+// Empty strings from number inputs must go to the wire as null, not NaN or 0.
+function numOrNull(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Room breakdown rows -> API shape. Blank rows (the admin added a line and left it empty) are
+// dropped so they never fail validation; `null` means "no breakdown sent at all".
+function mapRoomsToApi(rooms) {
+  if (!Array.isArray(rooms)) return null;
+  const rows = rooms
+    .filter((r) => (r?.name || '').trim() && numOrNull(r?.areaSqM) > 0)
+    .map((r) => ({ name: r.name.trim(), areaSqM: Number(r.areaSqM) }));
+  return rows.length ? rows : null;
+}
+
+/** Building form -> POST /buildings body. The building carries no economics. */
+export function mapBuildingToCreateRequest(form) {
+  return {
+    name: form.name,
+    description: form.description || null,
+    address: form.address || null,
+    city: form.city || null,
+    developer: form.developer || null,
+    yearBuilt: numOrNull(form.completionYear),
+    floors: numOrNull(form.floors),
+    buildingType: form.type || null,
+  };
+}
+
+/**
+ * One unit of the create form -> POST /properties body. Economics are per unit: the admin types a
+ * token price and a supply for every apartment and garage separately.
+ */
+export function mapUnitToCreateRequest(unit, building, buildingId) {
+  const tokenPrice = Number(unit.tokenPrice ?? 0);
+  const totalTokens = Number(unit.totalTokens ?? 0);
+  return {
+    name: unit.name || unitFallbackName(unit),
+    description: unit.description || null,
+    address: building?.address || null,
+    totalValue: Number(unit.totalValue || tokenPrice * totalTokens),
+    tokenPrice,
+    totalTokens,
+    currency: unit.currency || building?.currency || 'KGS',
+    propertyType: building?.type || null,
+    city: building?.city || null,
+    yearBuilt: numOrNull(building?.completionYear),
+    developer: building?.developer || null,
+    floors: numOrNull(building?.floors),
+    buildingId,
+    unitType: unit.unitType || 'apartment',
+    unitNumber: unit.unitNumber || null,
+    floorNumber: numOrNull(unit.floorNumber),
+    roomCount: numOrNull(unit.roomCount),
+    totalAreaSqM: numOrNull(unit.totalAreaSqM),
+    rooms: mapRoomsToApi(unit.rooms),
+  };
+}
+
+/** PATCH /properties/{id} body for a unit's descriptive + unit fields. */
+export function mapUnitToUpdateRequest(unit) {
+  return {
+    name: unit.name || null,
+    description: unit.description || null,
+    unitType: unit.unitType || null,
+    unitNumber: unit.unitNumber || null,
+    floorNumber: numOrNull(unit.floorNumber),
+    roomCount: numOrNull(unit.roomCount),
+    totalAreaSqM: numOrNull(unit.totalAreaSqM),
+    // Always sent on edit: the admin edits the breakdown as one table, and an empty table means
+    // "clear it" — which is [] on the wire, not null.
+    rooms: (mapRoomsToApi(unit.rooms) || []),
+  };
+}
+
+/** Naming fallback so a unit never reaches the backend with an empty (rejected) name. */
+function unitFallbackName(unit) {
+  const kind = UNIT_TYPE_LABELS[unit.unitType] || 'Помещение';
+  const rooms = unit.roomCount ? `${unit.roomCount}-комнатный ` : '';
+  return `${rooms}${kind}${unit.unitNumber ? ` №${unit.unitNumber}` : ''}`.trim();
+}
+
+/** Wire unit types -> Russian labels used across the admin UI. */
+export const UNIT_TYPE_LABELS = {
+  apartment: 'Апартамент',
+  garage: 'Гараж',
+  parking_space: 'Парковочное место',
+  commercial: 'Коммерческое помещение',
+  storage: 'Кладовая',
+  other: 'Помещение',
+};
+
+/** API BuildingDto -> UI shape. `units` are mapped with the property mapper. */
+export function mapBuildingFromApi(b) {
+  const images = Array.isArray(b.images)
+    ? b.images.map((img) => (typeof img === 'string' ? img : img?.url)).filter(Boolean)
+    : [];
+  return {
+    id: b.id,
+    name: b.name,
+    description: b.description || '',
+    address: b.address || '',
+    city: b.city || '',
+    developer: b.developer || '',
+    completionYear: b.yearBuilt ?? null,
+    floors: b.floors ?? null,
+    type: b.buildingType || '',
+    images,
+    image: images[0] || PLACEHOLDER_IMAGE,
+    unitCount: b.unitCount ?? (Array.isArray(b.units) ? b.units.length : 0),
+    units: Array.isArray(b.units) ? b.units.map(mapPropertyFromApi) : [],
+    _source: 'api',
   };
 }

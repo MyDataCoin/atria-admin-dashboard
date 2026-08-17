@@ -91,7 +91,12 @@ export const properties = {
   list: () => request('/properties', { auth: true }),
   get: (id) => request(`/properties/${id}`, { auth: true }),
   // Admin only. body: { name, description?, address?, totalValue, tokenPrice, totalTokens, currency }
+  // A unit of a building additionally sends { buildingId, unitType, unitNumber?, floorNumber?,
+  // roomCount?, totalAreaSqM?, rooms: [{ name, areaSqM }] } — tokens are issued per unit.
   create: (body) => request('/properties', { method: 'POST', body }),
+  // Admin only. PATCH: only the supplied fields change. `rooms` replaces the whole breakdown
+  // ([] clears it, omitting it leaves it alone); buildingId of all-zero Guid detaches the unit.
+  update: (id, body) => request(`/properties/${id}`, { method: 'PATCH', body }),
   // Admin only. Announces a draft as "coming soon": draft -> coming_soon, so the public
   // site lists it under "Скоро" while drafts stay admin-only/hidden.
   // PROPOSED — backend must add POST /properties/{id}/announce (see handoff notes).
@@ -111,7 +116,7 @@ export const properties = {
   pause: (id) => request(`/properties/${id}/pause`, { method: 'POST' }),
   // Admin only. Resumes a paused offering (salesPaused=false). PROPOSED — see handoff notes.
   resume: (id) => request(`/properties/${id}/resume`, { method: 'POST' }),
-  // Admin only. Uploads one image (max 3/property). Returns { id, url }.
+  // Admin only. Uploads one image (max 10/property). Returns { id, url }.
   uploadImage: (id, file, filename) => {
     const form = new FormData();
     form.append('file', file, filename || file.name || 'photo.jpg');
@@ -128,6 +133,31 @@ export const properties = {
   },
   deleteDocument: (id, documentId) =>
     request(`/properties/${id}/documents/${documentId}`, { method: 'DELETE' }),
+};
+
+// ---- Buildings ------------------------------------------------------------
+
+// A building is the physical object (ЖК / здание) that groups the units sold inside it. It has
+// no token supply of its own: every apartment, garage or parking space inside is a property with
+// its own issue, created via properties.create({ buildingId, ... }).
+export const buildings = {
+  // Both list and get return each building together with its `units` (PropertyDto[]).
+  // Draft units are staff-only, so the admin token is what makes them visible here.
+  list: () => request('/buildings', { auth: true }),
+  get: (id) => request(`/buildings/${id}`, { auth: true }),
+  // Admin only. body: { name, description?, address?, city?, developer?, yearBuilt?, floors?, buildingType? }
+  create: (body) => request('/buildings', { method: 'POST', body }),
+  update: (id, body) => request(`/buildings/${id}`, { method: 'PATCH', body }),
+  // Admin only. 409 while the building still holds units — detach or remove them first.
+  remove: (id) => request(`/buildings/${id}`, { method: 'DELETE' }),
+  // Admin only. Uploads one photo of the building (max 10). Returns { id, url }.
+  uploadImage: (id, file, filename) => {
+    const form = new FormData();
+    form.append('file', file, filename || file.name || 'photo.jpg');
+    return request(`/buildings/${id}/images`, { method: 'POST', body: form });
+  },
+  deleteImage: (id, imageId) =>
+    request(`/buildings/${id}/images/${imageId}`, { method: 'DELETE' }),
 };
 
 // ---- Investments ----------------------------------------------------------
@@ -375,6 +405,7 @@ export const governance = {
 export default {
   auth,
   properties,
+  buildings,
   investments,
   holders,
   payouts,
