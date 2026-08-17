@@ -122,6 +122,10 @@ export default function PropertiesList({
   const [buildings, setBuildings] = useState([]);
   // Buildings collapsed by the admin. Default is expanded, so a freshly registered object is visible.
   const [collapsedBuildings, setCollapsedBuildings] = useState(() => new Set());
+  // Building whose own card is open. The building is the object a brochure is built from, so it
+  // needs a card of its own — not just a header above its units.
+  const [selectedBuilding, setSelectedBuilding] = useState(null);
+  const [buildingImgIndex, setBuildingImgIndex] = useState(0);
   const [selectedProp, setSelectedProp] = useState(null);
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   // Real investor shares for the opened property (from backend). null = not loaded → demo fallback.
@@ -824,6 +828,25 @@ export default function PropertiesList({
     return { groups, standalone };
   }, [properties, buildings, buildingNames, statusFilter]);
 
+  // Everything registered inside the open building — deliberately ignoring the status filter, so the
+  // building card is the full passport of the object (that is what a brochure is generated from).
+  const selectedBuildingUnits = useMemo(
+    () => (selectedBuilding ? properties.filter((p) => p.buildingId === selectedBuilding.id) : []),
+    [selectedBuilding, properties],
+  );
+
+  const buildingTotals = useMemo(() => {
+    const acc = { area: 0, tokens: 0, sold: 0, value: 0 };
+    selectedBuildingUnits.forEach((u) => {
+      acc.area += Number(u.totalAreaSqM) || 0;
+      const total = Number(u.totalTokens) || 0;
+      acc.tokens += total;
+      acc.sold += total - (Number(u.availableTokens ?? total) || 0);
+      acc.value += Number(u.totalValue ?? (Number(u.tokenPrice) || 0) * total) || 0;
+    });
+    return acc;
+  }, [selectedBuildingUnits]);
+
   // One registry card. Used both inside a building group and for standalone issues, so a unit
   // looks the same wherever it is listed.
   const renderPropertyCard = (prop) => {
@@ -1074,7 +1097,10 @@ export default function PropertiesList({
           return (
             <div key={building.id} className="border border-gray-200 rounded-sm bg-gray-50/40 overflow-hidden">
               {/* Building header — the physical object; it issues no tokens of its own. */}
-              <div className="flex items-start gap-4 p-4 bg-white border-b border-gray-150">
+              <div
+                onClick={() => { setSelectedBuilding(building); setBuildingImgIndex(0); }}
+                className="flex items-start gap-4 p-4 bg-white border-b border-gray-150 cursor-pointer hover:bg-[#FAF8F3]/60 transition-colors group/bld"
+              >
                 <img
                   src={building.image}
                   alt={building.name}
@@ -1100,13 +1126,16 @@ export default function PropertiesList({
                   <span className="text-[10px] font-mono text-gray-500">
                     {units.length} из {building.unitCount || units.length} помещ.
                   </span>
+                  <span className="hidden sm:inline text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] opacity-0 group-hover/bld:opacity-100 transition-opacity">
+                    Карточка здания
+                  </span>
                   <button
                     type="button"
-                    onClick={() => setCollapsedBuildings((prev) => {
+                    onClick={(e) => { e.stopPropagation(); setCollapsedBuildings((prev) => {
                       const next = new Set(prev);
                       if (next.has(building.id)) next.delete(building.id); else next.add(building.id);
                       return next;
-                    })}
+                    }); }}
                     className="p-1.5 text-gray-400 hover:text-[#A38D6D] border border-gray-200 rounded cursor-pointer"
                     title={collapsed ? 'Показать помещения' : 'Свернуть'}
                   >
@@ -1235,6 +1264,17 @@ export default function PropertiesList({
                     {selectedProp.unitType && (
                       <div>
                         <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Помещение</h4>
+
+                        {/* Which building this unit belongs to — the card is opened from the list, so
+                            the grouping context is otherwise lost once the panel covers it. */}
+                        {selectedProp.buildingId && buildingNames[selectedProp.buildingId] && (
+                          <p className="flex items-center gap-1.5 text-[11px] text-gray-600 mb-3">
+                            <Building size={12} className="text-[#A38D6D]" />
+                            В здании
+                            <span className="font-bold text-gray-900">{buildingNames[selectedProp.buildingId]}</span>
+                          </p>
+                        )}
+
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                           <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
                             <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Тип</span>
@@ -2109,6 +2149,179 @@ export default function PropertiesList({
               </form>
             </motion.div>
             </div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Building card — the physical object itself: passport, totals over its units, unit list. */}
+      <AnimatePresence>
+        {selectedBuilding && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-end z-50 p-0 sm:p-4">
+            <motion.div
+              initial={{ x: '100%' }}
+              animate={{ x: 0 }}
+              exit={{ x: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+              className="bg-white h-full sm:max-h-[96vh] w-full max-w-2xl sm:rounded-sm shadow-2xl flex flex-col overflow-hidden text-left border-l border-gray-200"
+            >
+              <div className="relative h-48 bg-gray-100 shrink-0">
+                <img
+                  src={selectedBuilding.images[buildingImgIndex] || selectedBuilding.image}
+                  alt={selectedBuilding.name}
+                  className="w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+
+                {selectedBuilding.images.length > 1 && (
+                  <div className="absolute bottom-4 right-6 flex gap-1.5 z-10 bg-black/40 backdrop-blur-xs p-1.5 rounded-full">
+                    {selectedBuilding.images.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => setBuildingImgIndex(idx)}
+                        className={`w-2 h-2 rounded-full transition-all cursor-pointer ${
+                          buildingImgIndex === idx ? 'bg-[#A38D6D] scale-125' : 'bg-white/60 hover:bg-white'
+                        }`}
+                        title={`Фото ${idx + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setSelectedBuilding(null)}
+                  className="absolute top-4 right-4 cursor-pointer bg-black/50 text-white hover:bg-black/80 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold font-mono transition-colors"
+                >
+                  ✕
+                </button>
+
+                <div className="absolute bottom-4 left-6 text-white">
+                  <span className="text-[8px] font-mono uppercase tracking-widest text-[#A38D6D] font-bold flex items-center gap-1 mb-1">
+                    <Building size={10} />
+                    Карточка здания
+                  </span>
+                  <h3 className="text-xl font-serif font-bold leading-tight">{selectedBuilding.name}</h3>
+                  <p className="text-[10px] text-gray-300 font-mono mt-0.5 uppercase tracking-wide">
+                    {[selectedBuilding.city, selectedBuilding.address].filter(Boolean).join(' • ') || 'Здание'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-6 space-y-7">
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Паспорт здания</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      ['Тип', selectedBuilding.type || '—'],
+                      ['Застройщик', selectedBuilding.developer || '—'],
+                      ['Этажность', selectedBuilding.floors ? `${selectedBuilding.floors} эт.` : '—'],
+                      ['Год сдачи', selectedBuilding.completionYear || '—'],
+                    ].map(([label, value]) => (
+                      <div key={label} className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">{label}</span>
+                        <span className="text-sm font-bold text-gray-900 break-words">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {selectedBuilding.address && (
+                    <p className="flex items-start gap-1.5 text-[11px] text-gray-600 mt-3">
+                      <MapPin size={12} className="text-[#A38D6D] mt-0.5 shrink-0" />
+                      {selectedBuilding.address}
+                    </p>
+                  )}
+                  {selectedBuilding.description && (
+                    <p className="text-sm text-gray-600 leading-relaxed mt-3">{selectedBuilding.description}</p>
+                  )}
+                </div>
+
+                {/* Totals — the building issues nothing itself, so these are sums over its units. */}
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Итого по зданию</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {[
+                      ['Помещений', selectedBuildingUnits.length.toLocaleString('ru-RU')],
+                      ['Общая площадь', `${buildingTotals.area.toFixed(2)} м²`],
+                      ['Всего токенов', buildingTotals.tokens.toLocaleString('ru-RU')],
+                      ['Стоимость', formatMoney(buildingTotals.value, selectedBuildingUnits[0]?.currency || currency)],
+                    ].map(([label, value]) => (
+                      <div key={label} className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                        <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">{label}</span>
+                        <span className="text-sm font-bold font-mono text-gray-900">{value}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {buildingTotals.tokens > 0 && (() => {
+                    const sold = Math.max(0, Math.min(100, (buildingTotals.sold / buildingTotals.tokens) * 100));
+                    return (
+                      <div className="mt-4">
+                        <div className="flex justify-between items-center text-[9px] font-mono mb-1">
+                          <span className="uppercase tracking-wider text-gray-400 font-semibold">Продано долей по зданию</span>
+                          <span className="font-bold text-gray-700">{sold.toFixed(2)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
+                          <div className="h-full bg-[#A38D6D]" style={{ width: `${sold}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">
+                    Помещения ({selectedBuildingUnits.length})
+                  </h4>
+                  {selectedBuildingUnits.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 font-mono">В этом здании ещё нет помещений.</p>
+                  ) : (
+                    <div className="border border-gray-150 rounded-sm divide-y divide-gray-100">
+                      {selectedBuildingUnits.map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedBuilding(null);
+                            setSelectedProp(u);
+                            setActiveSubTab('info');
+                            setActiveImgIndex(0);
+                          }}
+                          className="w-full flex items-center justify-between gap-3 px-3 py-2 hover:bg-[#FAF8F3]/60 transition-colors cursor-pointer text-left"
+                        >
+                          <span className="min-w-0">
+                            <span className="block text-[12px] text-gray-900 truncate">{u.name}</span>
+                            <span className="block text-[10px] font-mono text-gray-500 truncate">
+                              {[
+                                UNIT_TYPE_LABELS[u.unitType] || 'Помещение',
+                                u.unitNumber ? `№${u.unitNumber}` : null,
+                                u.floorNumber != null ? `${u.floorNumber} эт.` : null,
+                                u.totalAreaSqM ? `${Number(u.totalAreaSqM).toFixed(2)} м²` : null,
+                              ].filter(Boolean).join(' • ')}
+                            </span>
+                          </span>
+                          <span className="text-right shrink-0">
+                            <span className="block text-[11px] font-mono font-bold text-gray-900">
+                              {formatMoney(u.tokenPrice, u.currency)}
+                            </span>
+                            <span className="block text-[9px] font-mono text-gray-500">
+                              {(u.availableTokens ?? 0).toLocaleString('ru-RU')} / {(u.totalTokens ?? 0).toLocaleString('ru-RU')}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 p-4 shrink-0">
+                <button
+                  onClick={() => setSelectedBuilding(null)}
+                  className="w-full bg-[#111111] hover:bg-[#A38D6D] text-white text-[10px] font-bold uppercase tracking-widest py-3 rounded transition-all cursor-pointer"
+                >
+                  Закрыть карточку
+                </button>
+              </div>
+            </motion.div>
           </div>
         )}
       </AnimatePresence>
