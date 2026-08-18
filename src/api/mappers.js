@@ -99,7 +99,7 @@ export function mapPropertyFromApi(p) {
 }
 
 // Backend KYC status (Pending|UnderReview|Approved|Rejected) -> dashboard status.
-function mapKycStatus(status) {
+export function mapKycStatus(status) {
   switch (status) {
     case 'Approved':
       return 'Approved';
@@ -128,6 +128,8 @@ export function mapInvestorFromApi(dto) {
     walletAddress: dto.walletAddress || '',
     // status is null for users with no KYC profile yet.
     kycStatus: dto.status || dto.kycStatus ? mapKycStatus(dto.status || dto.kycStatus) : 'Pending',
+    // Operator actions on a verification are addressed by PROFILE id, not user id.
+    kycProfileId: dto.kycProfileId || null,
     amlRisk: dto.amlRisk || 'N/A',
     pepStatus: dto.pepStatus || 'N/A',
     verificationDate: (dto.verificationDate || dto.createdAtUtc || '').slice(0, 10),

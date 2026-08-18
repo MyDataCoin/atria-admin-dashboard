@@ -198,6 +198,10 @@ export const kyc = {
   me: () => request('/kyc/me'),
   // Compliance only. body: { approve, reason? }
   review: (id, body) => request(`/kyc/${id}/review`, { method: 'POST', body }),
+  // Asks the provider what it decided, for a verification whose webhook never arrived — Didit
+  // gives up after five failed deliveries and the profile then hangs in UnderReview forever.
+  // Idempotent: a decided profile comes back unchanged, an undecided one is left alone.
+  sync: (id) => request(`/kyc/${id}/sync`, { method: 'POST' }),
 };
 
 // ---- Consent --------------------------------------------------------------

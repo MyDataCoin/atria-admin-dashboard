@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../api';
-import { mapInvestorHoldingFromApi } from '../api/mappers';
-import { ShieldCheck, Search, Mail, ShieldAlert } from 'lucide-react';
+import { mapInvestorHoldingFromApi, mapKycStatus } from '../api/mappers';
+import { ShieldCheck, Search, Mail, ShieldAlert, RefreshCw, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function UsersAndKyc({
@@ -11,6 +11,10 @@ export default function UsersAndKyc({
 }) {
   const [selectedInv, setSelectedInv] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Pulling a provider decision for one investor at a time; holds that investor's id while it runs.
+  const [syncingId, setSyncingId] = useState(null);
+  const [syncError, setSyncError] = useState('');
 
   // Portfolio for the opened investor. `null` = not loaded yet (show a loader);
   // an array (possibly empty) = loaded. The registry list has no holdings, so the
@@ -55,6 +59,36 @@ export default function UsersAndKyc({
     return (inv.name || '').toLowerCase().includes(searchQuery.toLowerCase());
   });
 
+  /**
+   * Asks the KYC provider what it decided about this investor's verification.
+   *
+   * The decision normally arrives on a webhook, but Didit drops an event after five failed
+   * deliveries — and then a verification the person really did pass sits in UnderReview with
+   * nothing on our side to say why. This is how an operator gets that profile unstuck without
+   * approving it blind: the provider is asked, and whatever it answers is what gets applied.
+   */
+  const syncKyc = async (inv) => {
+    if (!inv.kycProfileId || syncingId) return;
+    setSyncingId(inv.id);
+    setSyncError('');
+    try {
+      const profile = await api.kyc.sync(inv.kycProfileId);
+      const status = mapKycStatus(profile?.status) || 'Pending';
+      setInvestors?.((prev) =>
+        prev.map((row) => (row.id === inv.id ? { ...row, kycStatus: status, name: profile?.fullName || row.name } : row)),
+      );
+      onAddLog?.(
+        status === 'Approved'
+          ? `KYC подтверждён у провайдера: ${profile?.fullName || inv.name}`
+          : `Статус KYC у провайдера: ${status} (${inv.name})`,
+      );
+    } catch (err) {
+      setSyncError(err?.problem?.detail ?? err?.message ?? 'Не удалось получить решение провайдера.');
+    } finally {
+      setSyncingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6 font-sans text-left">
       
@@ -93,6 +127,12 @@ export default function UsersAndKyc({
           />
         </div>
       </div>
+
+      {syncError && (
+        <div className="mb-3 rounded border border-rose-200 bg-rose-50 px-4 py-2.5 text-[11px] text-rose-700">
+          {syncError}
+        </div>
+      )}
 
       {/* Main Table List */}
       <div className="bg-white border border-gray-100 rounded-sm overflow-hidden shadow-xs">
@@ -136,12 +176,28 @@ export default function UsersAndKyc({
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => setSelectedInv(inv)}
-                        className="px-2.5 py-1 bg-gray-100 hover:bg-[#A38D6D] hover:text-white rounded text-[10px] uppercase font-bold tracking-wider transition-all cursor-pointer"
-                      >
-                        <span>Детали</span>
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => setSelectedInv(inv)}
+                          className="px-2.5 py-1 bg-gray-100 hover:bg-[#A38D6D] hover:text-white rounded text-[10px] uppercase font-bold tracking-wider transition-all cursor-pointer"
+                        >
+                          <span>Детали</span>
+                        </button>
+                        {inv.kycStatus !== 'Approved' && inv.kycProfileId && (
+                          <button
+                            onClick={() => syncKyc(inv)}
+                            disabled={syncingId === inv.id}
+                            title="Запросить решение у провайдера KYC"
+                            className="p-1.5 rounded border border-gray-200 text-gray-500 hover:border-[#A38D6D] hover:text-[#A38D6D] disabled:opacity-50 cursor-pointer"
+                          >
+                            {syncingId === inv.id ? (
+                              <Loader2 size={12} className="animate-spin" />
+                            ) : (
+                              <RefreshCw size={12} />
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
