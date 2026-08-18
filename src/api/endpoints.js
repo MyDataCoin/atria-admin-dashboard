@@ -171,7 +171,7 @@ export const investments = {
   create: (body) => request('/investments', { method: 'POST', body }), // { propertyId, amount }
 
   // Operator queue. The one investments read that crosses investor boundaries, hence Admin-only.
-  // status: Reserved | Active | Rejected | Cancelled | Expired.
+  // status: Reserved | Active | Rejected | Cancelled | Expired | Annulled.
   list: ({ status, propertyId, take } = {}) => {
     const query = new URLSearchParams();
     if (status) query.set('status', status);
@@ -184,6 +184,12 @@ export const investments = {
   approve: (id) => request(`/investments/${id}/approve`, { method: 'POST' }),
   reject: (id, reason) => request(`/investments/${id}/reject`, { method: 'POST', body: { reason } }),
   cancel: (id) => request(`/investments/${id}/cancel`, { method: 'POST' }),
+
+  // Аннулирование: единственный поддержанный способ убрать ошибочную или тестовую заявку.
+  // Возвращает доли в пул выпуска — чего удаление строки в базе НЕ делает, отчего выпуск
+  // молча теряет их навсегда. recordRefund=false, только если денег по заявке не было.
+  annul: (id, reason, recordRefund = true) =>
+    request(`/investments/${id}/annul`, { method: 'POST', body: { reason, recordRefund } }),
   mine: () => request('/investments/me'),
   portfolio: () => request('/investments/portfolio'),
   get: (id) => request(`/investments/${id}`),
