@@ -22,6 +22,7 @@ import ActivitiesTimeline from './components/ActivitiesTimeline';
 import SupportTickets from './components/SupportTickets';
 import Applications from './components/Applications';
 import HolderRegistry from './components/HolderRegistry';
+import Whitelist from './components/Whitelist';
 
 // No seed datasets: every panel starts empty and fills from the API. Demo rows that stayed on
 // screen when a request failed were indistinguishable from real ones — an operator could act on a
@@ -345,6 +346,10 @@ export default function AdminApp({ currentUser, onLogout }) {
             onAddLog={handleAddAuditLog}
           />
         );
+      case 'whitelist':
+        // Read fresh from /whitelist on mount: requests are approved and batched while the screen
+        // is open, and a batch must never be assembled against a stale queue.
+        return <Whitelist properties={properties} onAddLog={handleAddAuditLog} />;
       case 'registry':
         return <HolderRegistry properties={properties} onAddLog={handleAddAuditLog} />;
       case 'investors':

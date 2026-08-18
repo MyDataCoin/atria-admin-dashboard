@@ -148,6 +148,9 @@ export const buildings = {
   // Admin only. body: { name, description?, address?, city?, developer?, yearBuilt?, floors?, buildingType? }
   create: (body) => request('/buildings', { method: 'POST', body }),
   update: (id, body) => request(`/buildings/${id}`, { method: 'PATCH', body }),
+  // Admin only. Opens every draft/coming-soon unit of the building in one action; returns
+  // { published, alreadyOpen, skipped }. 409 when the building has no units at all.
+  publish: (id) => request(`/buildings/${id}/publish`, { method: 'POST' }),
   // Admin only. 409 while the building still holds units — detach or remove them first.
   remove: (id) => request(`/buildings/${id}`, { method: 'DELETE' }),
   // Admin only. Uploads one photo of the building (max 10). Returns { id, url }.
@@ -364,6 +367,38 @@ export const holders = {
     request(`/holders/snapshots/${id}/export`, { raw: true }),
 };
 
+// ---- Whitelist & mint lists -----------------------------------------------
+
+// Every purchase request on its way to being minted, and the batches handed to the
+// exchange to mint them. A request enters the queue the moment the investor presses
+// buy, becomes mintable once an operator approves the application, and leaves it
+// either into a mint list or excluded.
+//
+// Not the on-chain allowlist (Allowlist.sol) — that is compliance plumbing. This is
+// the working queue that decides what gets minted and when.
+export const whitelist = {
+  // status: Pending | Ready | Batched | Minted | Excluded. Both filters are optional.
+  entries: (propertyId, status, take) =>
+    request('/whitelist', { query: { propertyId, status, take } }),
+
+  mintLists: (propertyId) => request('/whitelist/mint-lists', { query: { propertyId } }),
+  mintList: (id) => request(`/whitelist/mint-lists/${id}`),
+
+  // entryIds empty/omitted takes every mintable request the issue has — the common case.
+  createMintList: (propertyId, entryIds, note) =>
+    request('/whitelist/mint-lists', { method: 'POST', body: { propertyId, entryIds, note } }),
+
+  // The CSV is rendered server-side, so what the exchange receives is exactly what the
+  // batch holds. `raw` keeps the Response so the caller can read it as a blob — a plain
+  // <a href> would drop the bearer token and get a 401.
+  exportMintList: (id) => request(`/whitelist/mint-lists/${id}/export`, { raw: true }),
+
+  markSent: (id) => request(`/whitelist/mint-lists/${id}/send`, { method: 'POST' }),
+  markExecuted: (id) => request(`/whitelist/mint-lists/${id}/execute`, { method: 'POST' }),
+  cancelMintList: (id, reason) =>
+    request(`/whitelist/mint-lists/${id}/cancel`, { method: 'POST', body: { reason } }),
+};
+
 // ---- Payouts --------------------------------------------------------------
 
 // Distributions to the holders of an issue. The platform computes what each holder
@@ -391,7 +426,8 @@ export const payouts = {
 // Starting a distribution, publishing an issue and blocking an investor take two
 // people: one raises the request, a different account decides it.
 export const governance = {
-  // kind: PayoutRun | InvestorBlock | IssuePublication; targetId is the entity.
+  // kind: PayoutRun | InvestorBlock; targetId is the entity. Publishing an issue is NOT a
+  // critical action — an admin opens an offering directly via properties.publish / buildings.publish.
   request: (kind, targetId, reason) =>
     request('/governance/critical-actions', { method: 'POST', body: { kind, targetId, reason } }),
   pending: () => request('/governance/critical-actions/pending'),
@@ -404,6 +440,7 @@ export const governance = {
 
 export default {
   auth,
+  whitelist,
   properties,
   buildings,
   investments,

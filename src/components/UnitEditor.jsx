@@ -277,10 +277,11 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
           </div>
           <div>
             <label className={labelClass}>Всего токенов</label>
-            {/* step="any": the issue is often sized off the area (57.55 м² → 57.55 токенов), so a
-                fractional supply has to be typeable — the default step=1 rejects it. */}
+            {/* Выпуск часто задают по площади (57,55 м² → 57,55 токена), поэтому дробь обязана
+                вводиться; шаг 0.01 — ровно масштаб доли (TokenAmount.Scale), мельче бэкенд
+                отклонит. */}
             <input
-              type="number" min="0.01" step="any" required
+              type="number" min="0.01" step="0.01" required
               value={unit.totalTokens}
               onChange={(e) => patch({ totalTokens: e.target.value })}
               className={`${inputClass} font-mono`}

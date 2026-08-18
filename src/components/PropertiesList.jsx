@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../api';
 import {
   mapHolderFromInvestment,
+  mapPropertyFromApi,
   mapBuildingFromApi,
   mapBuildingToCreateRequest,
   mapUnitToCreateRequest,
@@ -90,6 +91,15 @@ function compressImage(file, maxDim = 2048, quality = 0.85) {
 
 // Formats an amount already expressed in its own currency (no USD conversion),
 // unlike utils.formatVal which converts from USD. Backend token prices are native.
+// Доли дробные (выпуск на 57,55 токена под 57,55 м²), поэтому счётчики токенов показываем с
+// дробью до 2 знаков — ровно масштаб доли (TokenAmount.Scale на бэкенде).
+function formatTokens(count) {
+  return new Intl.NumberFormat('ru-RU', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(count) || 0);
+}
+
 function formatMoney(amount, currencyCode = 'USD') {
   if (amount === null || amount === undefined || isNaN(amount)) return '—';
   const n = Number(amount).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -122,6 +132,10 @@ export default function PropertiesList({
   const [buildings, setBuildings] = useState([]);
   // Buildings collapsed by the admin. Default is expanded, so a freshly registered object is visible.
   const [collapsedBuildings, setCollapsedBuildings] = useState(() => new Set());
+  // Last failed lifecycle action (announce / publish / …). These used to land in the audit log only,
+  // which reads as "the button does nothing" — the reason has to be on screen.
+  const [actionError, setActionError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   // Building whose own card is open. The building is the object a brochure is built from, so it
   // needs a card of its own — not just a header above its units.
   const [selectedBuilding, setSelectedBuilding] = useState(null);
@@ -398,6 +412,7 @@ export default function PropertiesList({
     const matched = properties.find(p => p.id === propId);
     if (matched?._source === 'api') {
       try {
+        setActionError('');
         await api.properties.announce(propId);
         onAddLog(
           'Property Announced',
@@ -405,6 +420,11 @@ export default function PropertiesList({
         );
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
+        setActionError(
+          `Не удалось анонсировать "${matched?.name}"${err?.status ? ` (HTTP ${err.status})` : ''}: ` +
+          `${err?.message || 'нет ответа'}. ` +
+          `${err?.status === 404 ? 'Эндпоинта /announce нет на бэке — публикуй сразу кнопкой «Опубликовать».' : ''}`
+        );
         onAddLog(
           'Property Announce Failed',
           `Не удалось анонсировать "${matched?.name}": ${err?.message || 'нужен эндпоинт /announce на бэке'}.`,
@@ -431,6 +451,10 @@ export default function PropertiesList({
         );
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
+        setActionError(
+          `Не удалось вернуть в черновик "${matched?.name}"${err?.status ? ` (HTTP ${err.status})` : ''}: ` +
+          `${err?.message || 'нужен эндпоинт /unannounce на бэке'}.`
+        );
         onAddLog(
           'Property Unannounce Failed',
           `Не удалось вернуть в черновик "${matched?.name}": ${err?.message || 'нужен эндпоинт /unannounce на бэке'}.`,
@@ -446,11 +470,14 @@ export default function PropertiesList({
   // Publish (черновик/скоро → открыт к покупке). Persists on the backend via
   // POST /properties/{id}/publish so the public site moves the object from "скоро"
   // to "открыт к покупке". Falls back to a local flip for demo (non-API) properties.
+  /** Публикация помещения: одно действие администратора, применяется сразу. */
   const handlePublishProperty = async (propId, e) => {
     e.stopPropagation();
     const matched = properties.find(p => p.id === propId);
     if (matched?._source === 'api') {
       try {
+        setActionError('');
+        setActionNotice('');
         await api.properties.publish(propId);
         onAddLog(
           'Property Published',
@@ -458,6 +485,11 @@ export default function PropertiesList({
         );
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
+        setActionError(
+          `Не удалось опубликовать "${matched?.name}"${err?.status ? ` (HTTP ${err.status})` : ''}: ` +
+          `${err?.message || 'ошибка API'}.` +
+          `${err?.status === 409 ? ' Объект нельзя публиковать из текущего статуса.' : ''}`
+        );
         onAddLog(
           'Property Publish Failed',
           `Не удалось опубликовать "${matched?.name}": ${err?.message || 'ошибка API'}.`,
@@ -470,8 +502,35 @@ export default function PropertiesList({
     onAddLog('Property Published', `Объект "${matched?.name}" опубликован (локально).`);
   };
 
-  // Close an open offering (активный → распродан/архив). Persists via
-  // POST /properties/{id}/complete (open → completed) so the public site shows "распродан".
+  /** Публикация здания целиком: все его помещения уходят в продажу одним действием. */
+  const handlePublishBuilding = async (building, e) => {
+    e.stopPropagation();
+    setActionError('');
+    setActionNotice('');
+    try {
+      const result = await api.buildings.publish(building.id);
+      const published = result?.published ?? 0;
+      const alreadyOpen = result?.alreadyOpen ?? 0;
+      const skipped = result?.skipped ?? 0;
+      onAddLog(
+        'Building Published',
+        `Здание "${building.name}": опубликовано помещений — ${published}.`
+      );
+      setActionNotice(
+        `Здание «${building.name}» опубликовано: помещений открыто — ${published}` +
+        `${alreadyOpen ? `, уже были открыты — ${alreadyOpen}` : ''}` +
+        `${skipped ? `, пропущено (распроданы или аннулированы) — ${skipped}` : ''}.`
+      );
+      if (onRefreshProperties) await onRefreshProperties();
+    } catch (err) {
+      setActionError(
+        `Не удалось опубликовать здание "${building.name}"${err?.status ? ` (HTTP ${err.status})` : ''}: ` +
+        `${err?.message || 'ошибка API'}.` +
+        `${err?.status === 409 ? ' В здании нет помещений для публикации.' : ''}`
+      );
+    }
+  };
+
   const handleArchiveProperty = async (propId, e) => {
     e.stopPropagation();
     const matched = properties.find(p => p.id === propId);
@@ -484,6 +543,10 @@ export default function PropertiesList({
         );
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
+        setActionError(
+          `Не удалось завершить "${matched?.name}"${err?.status ? ` (HTTP ${err.status})` : ''}: ` +
+          `${err?.status === 409 ? 'объект не в статусе «открыт к покупке»' : (err?.message || 'ошибка API')}.`
+        );
         onAddLog(
           'Property Complete Failed',
           `Не удалось завершить "${matched?.name}": ${
@@ -948,7 +1011,7 @@ export default function PropertiesList({
               <div>
                 <span className="text-[9px] uppercase tracking-wider text-gray-400 font-semibold block">Доступно / Всего</span>
                 <span className="font-bold font-mono text-gray-800">
-                  {(prop.availableTokens ?? 0).toLocaleString()} / {(prop.totalTokens ?? 0).toLocaleString()}
+                  {formatTokens(prop.availableTokens)} / {formatTokens(prop.totalTokens)}
                 </span>
               </div>
             </>
@@ -999,15 +1062,27 @@ export default function PropertiesList({
               <Edit3 size={11} />
               <span>Изменить</span>
             </button>
+            {/* "Скоро" is an optional stop on the way to sale — a draft can also go straight to
+                open, which is what the backend's own draft -> open transition does. */}
             {prop.status === 'draft' && (
-              <button
-                onClick={(e) => handleAnnounceProperty(prop.id, e)}
-                className="flex items-center gap-1 px-2 py-1 text-sky-700 hover:text-white hover:bg-sky-600 border border-sky-200 hover:border-sky-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
-                title="Пометить «Скоро в продаже» — покажется на сайте в категории «Скоро»"
-              >
-                <Megaphone size={11} />
-                <span>Скоро</span>
-              </button>
+              <>
+                <button
+                  onClick={(e) => handleAnnounceProperty(prop.id, e)}
+                  className="flex items-center gap-1 px-2 py-1 text-sky-700 hover:text-white hover:bg-sky-600 border border-sky-200 hover:border-sky-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                  title="Пометить «Скоро в продаже» — покажется на сайте в категории «Скоро»"
+                >
+                  <Megaphone size={11} />
+                  <span>Скоро</span>
+                </button>
+                <button
+                  onClick={(e) => handlePublishProperty(prop.id, e)}
+                  className="flex items-center gap-1 px-2 py-1 text-emerald-700 hover:text-white hover:bg-emerald-600 border border-emerald-200 hover:border-emerald-600 rounded transition-colors text-[10px] font-mono font-bold uppercase tracking-wider"
+                  title="Опубликовать сразу — открыть к покупке на сайте, минуя «Скоро»"
+                >
+                  <Rocket size={11} />
+                  <span>Опубликовать</span>
+                </button>
+              </>
             )}
             {prop.status === 'coming_soon' && (
               <>
@@ -1090,6 +1165,34 @@ export default function PropertiesList({
         })}
       </div>
 
+      {actionNotice && (
+        <div className="flex items-start gap-2 border border-sky-200 bg-sky-50 text-sky-800 rounded-sm px-4 py-3">
+          <ShieldAlert size={14} className="mt-0.5 shrink-0" />
+          <p className="flex-1 text-[11px] leading-relaxed">{actionNotice}</p>
+          <button
+            type="button"
+            onClick={() => setActionNotice('')}
+            className="text-[11px] font-mono text-sky-400 hover:text-sky-800 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="flex items-start gap-2 border border-red-200 bg-red-50 text-red-700 rounded-sm px-4 py-3">
+          <ShieldAlert size={14} className="mt-0.5 shrink-0" />
+          <p className="flex-1 text-[11px] leading-relaxed">{actionError}</p>
+          <button
+            type="button"
+            onClick={() => setActionError('')}
+            className="text-[11px] font-mono text-red-400 hover:text-red-700 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Registry: every building with the units registered inside it. */}
       <div className="space-y-8">
         {groupedView.groups.map(({ building, units }) => {
@@ -1129,6 +1232,18 @@ export default function PropertiesList({
                   <span className="hidden sm:inline text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] opacity-0 group-hover/bld:opacity-100 transition-opacity">
                     Карточка здания
                   </span>
+                  {/* Публикация здания разом: все его квартиры и гаражи уходят в продажу. */}
+                  {units.some((u) => u.status === 'draft' || u.status === 'coming_soon') && (
+                    <button
+                      type="button"
+                      onClick={(e) => handlePublishBuilding(building, e)}
+                      className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded text-[9px] uppercase font-bold tracking-wider cursor-pointer"
+                      title="Опубликовать здание целиком — открыть к покупке все его помещения"
+                    >
+                      <Rocket size={11} />
+                      <span>Опубликовать здание</span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setCollapsedBuildings((prev) => {
@@ -1322,11 +1437,11 @@ export default function PropertiesList({
                           </div>
                           <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
                             <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Доступно</span>
-                            <span className="text-sm font-bold font-mono text-gray-900">{(selectedProp.availableTokens ?? 0).toLocaleString()}</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">{formatTokens(selectedProp.availableTokens)}</span>
                           </div>
                           <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
                             <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Всего токенов</span>
-                            <span className="text-sm font-bold font-mono text-gray-900">{(selectedProp.totalTokens ?? 0).toLocaleString()}</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">{formatTokens(selectedProp.totalTokens)}</span>
                           </div>
                           <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
                             <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Валюта</span>
