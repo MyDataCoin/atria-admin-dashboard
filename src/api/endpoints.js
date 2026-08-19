@@ -71,6 +71,21 @@ export const auth = {
     }
   },
 
+  // Who am I: role, login, ФИО и флаг «нужно сменить пароль». Имя не лежит в JWT (токен хранится
+  // на клиенте, поэтому всё в нём — опубликовано), так что панель спрашивает его отдельно.
+  me: () => request('/auth/me'),
+
+  // Смена собственного пароля. Возвращает НОВУЮ пару токенов: смена пароля прокручивает
+  // security stamp, и токен, с которым пришёл запрос, сразу перестаёт валидироваться.
+  changePassword: async (currentPassword, newPassword) => {
+    const tokens = await request('/auth/password/change', {
+      method: 'POST',
+      body: { currentPassword, newPassword },
+    });
+    tokenStore.set(tokens);
+    return tokens;
+  },
+
   // Ends the session on the SERVER too: revokes the refresh token and expires its cookie. Clearing
   // only the client's copy would leave the token usable for the rest of its thirty days.
   logout: async () => {
@@ -323,6 +338,9 @@ export const superadmin = {
   // PROPOSED — no admin-list endpoint exists yet (/users is the investor registry and
   // carries no role). See BACKEND-SUPERADMIN-ADMINS.md.
   listAdmins: () => request('/admins'),
+  // Создать аккаунт администратора. body: { username, fullName, password }
+  // Пароль разовый: аккаунт помечается флагом смены пароля при первом входе.
+  registerAdmin: (body) => request('/admins', { method: 'POST', body }),
   // Register a new realtor account. PROPOSED — no such endpoint exists yet; only OTP
   // (investors) and login routes are present. See BACKEND-SUPERADMIN-REALTOR-REGISTER.md.
   // body: { username, password, fullName, companyName?, phoneNumber? }

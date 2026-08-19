@@ -89,7 +89,7 @@ export default function Sidebar({
           {adminUser && (
             <div className="bg-white/5 border border-white/10 rounded-sm p-3.5 text-left">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-[#A38D6D] text-white font-serif flex items-center justify-center font-bold text-xs uppercase shadow-sm">
+                <div className="w-11 h-11 shrink-0 rounded-full bg-[#A38D6D] text-white font-serif flex items-center justify-center font-bold text-sm uppercase tracking-wide shadow-sm">
                   {adminUser.avatar}
                 </div>
                 <div className="min-w-0">

@@ -5,6 +5,7 @@ import RealtorApp from './RealtorApp';
 import SuperAdminApp from './SuperAdminApp';
 import PasswordInput from './components/PasswordInput';
 import BlockedScreen from './components/BlockedScreen';
+import ForcePasswordChange from './components/ForcePasswordChange';
 
 import { RefreshCw } from 'lucide-react';
 
@@ -22,6 +23,13 @@ function roleFromToken(token) {
   if (raw.includes('realtor')) return 'realtor';
   // Anything else authenticated against this backend is treated as staff/admin.
   return p ? 'admin' : null;
+}
+
+// Инициалы для кружка в шапке: «Шахин Сузан» -> «ШС». Одно слово -> первая буква.
+function initialsOf(fullName) {
+  const parts = (fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '';
+  return parts.slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 }
 
 // Build the dashboard user object from a decoded JWT payload, shaped per role.
@@ -44,6 +52,33 @@ function userFromToken(token) {
   };
 }
 
+/**
+ * Достраивает пользователя из JWT данными аккаунта: ФИО (его нет в токене — токен лежит на клиенте,
+ * поэтому всё, что в нём, считается опубликованным) и флагом обязательной смены пароля.
+ *
+ * Если /auth/me недоступен, возвращаем то, что даёт токен: панель должна открыться и без имени.
+ */
+async function loadCurrentUser(token) {
+  const base = userFromToken(token);
+  if (!base) return null;
+  try {
+    const me = await api.auth.me();
+    const displayName = me.fullName || me.username || base.name;
+    return {
+      ...base,
+      id: me.id || base.id,
+      username: me.username || base.username,
+      fullName: me.fullName || '',
+      name: displayName,
+      role: me.role || base.role,
+      avatar: initialsOf(me.fullName) || base.avatar,
+      mustChangePassword: !!me.mustChangePassword,
+    };
+  } catch {
+    return base;
+  }
+}
+
 export default function App() {
   // The access token lives in memory, so a page reload starts with nothing. The session itself
   // survives in an HttpOnly cookie the browser holds, so restoring it means asking the server —
@@ -58,14 +93,15 @@ export default function App() {
 
     let cancelled = false;
 
-    api.auth.restoreSession().then((restored) => {
-      if (cancelled) return;
-
+    api.auth.restoreSession().then(async (restored) => {
       if (restored) {
+        const user = await loadCurrentUser(tokenStore.access);
+        if (cancelled) return;
         setRole(roleFromToken(tokenStore.access));
-        setCurrentUser(userFromToken(tokenStore.access));
+        setCurrentUser(user);
       }
 
+      if (cancelled) return;
       setRestoringSession(false);
     });
 
@@ -119,8 +155,11 @@ export default function App() {
       }
 
       setRole(roleFromToken(tokens.accessToken));
-      setCurrentUser(userFromToken(tokens.accessToken) || { name: username, username });
-      setLoginPass('');
+      const user = await loadCurrentUser(tokens.accessToken);
+      setCurrentUser(user || { name: username, username });
+      // Пароль оставляем в состоянии, только если им же придётся подтверждать смену — форма
+      // обязательной смены подставит его, чтобы не просить набрать разовый пароль ещё раз.
+      if (!user?.mustChangePassword) setLoginPass('');
     } catch (err) {
       if (isBanError(err)) {
         // The backend includes the ban reason in the 403 body (a few likely field names).
@@ -160,6 +199,22 @@ export default function App() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500">
         Загрузка…
       </div>
+    );
+  }
+
+  // --- Аккаунт на разовом пароле: до смены пароля рабочее пространство не открываем ---
+  if (currentUser?.mustChangePassword) {
+    return (
+      <ForcePasswordChange
+        fullName={currentUser.fullName}
+        username={currentUser.username}
+        initialCurrentPassword={loginPass}
+        onChanged={async () => {
+          setLoginPass('');
+          setCurrentUser(await loadCurrentUser(tokenStore.access));
+        }}
+        onLogout={handleLogout}
+      />
     );
   }
 

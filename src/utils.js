@@ -40,3 +40,41 @@ export function formatVal(usdValue, currency = 'KGS', includeFraction = false) {
     return `${config.symbol}${formattedValue}`;
   }
 }
+
+/**
+ * Разовый пароль для нового аккаунта админа/риелтора.
+ *
+ * Собирается так, чтобы гарантированно проходить серверную политику
+ * (Atria.Application.Common.PasswordPolicy): заглавная, строчная, цифра и спецсимвол, длина 14.
+ * Берём crypto.getRandomValues, а не Math.random: это пароль, который какое-то время открывает
+ * доступ в панель, и предсказуемый генератор здесь стоит ровно столько же, сколько отсутствие пароля.
+ *
+ * Похожие символы (0/O, 1/l/I) исключены — пароль диктуют и переписывают руками.
+ */
+export function generateOneTimePassword(length = 14) {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const digits = '23456789';
+  const symbols = '!@#$%&*?-+';
+  const all = upper + lower + digits + symbols;
+
+  const pick = (alphabet) => {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return alphabet[buf[0] % alphabet.length];
+  };
+
+  // По одному символу каждого класса, остальное — из общего алфавита.
+  const chars = [pick(upper), pick(lower), pick(digits), pick(symbols)];
+  while (chars.length < length) chars.push(pick(all));
+
+  // Перемешиваем, иначе первые четыре позиции всегда одного и того же класса.
+  for (let i = chars.length - 1; i > 0; i--) {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    const j = buf[0] % (i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+
+  return chars.join('');
+}

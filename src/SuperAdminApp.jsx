@@ -20,7 +20,11 @@ import {
   Activity,
   UserPlus,
   Inbox,
+  Wand2,
+  Copy,
+  Check,
 } from 'lucide-react';
+import { generateOneTimePassword } from './utils';
 
 // Super-admin workspace: moderate investors and realtors (ban/unban) and manage
 // admin/realtor passwords (reset). Authentication and role routing live in the
@@ -49,10 +53,15 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   const [banTarget, setBanTarget] = useState(null);
   const [banReason, setBanReason] = useState('');
 
-  // New-realtor registration modal.
+  // Регистрация нового аккаунта: одна модалка на два вида — 'realtor' и 'admin'.
   const [showRegister, setShowRegister] = useState(false);
+  const [regKind, setRegKind] = useState('realtor');
   const [reg, setReg] = useState({ username: '', password: '', fullName: '', companyName: '', phoneNumber: '' });
   const [regBusy, setRegBusy] = useState(false);
+  // Сгенерированный пароль показываем открытым текстом: суперадмину его нужно передать человеку,
+  // а второй раз он его уже нигде не увидит.
+  const [generatedPassword, setGeneratedPassword] = useState('');
+  const [passwordCopied, setPasswordCopied] = useState(false);
   const [regResult, setRegResult] = useState(null); // { kind: 'ok'|'err', text }
 
   const load = useCallback(() => {
@@ -171,24 +180,37 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
     if (!reg.username.trim() || !reg.password.trim() || !reg.fullName.trim() || regBusy) return;
     setRegBusy(true);
     setRegResult(null);
+    const fullName = reg.fullName.trim();
     try {
-      await api.superadmin.registerRealtor({
-        username: reg.username.trim(),
-        password: reg.password,
-        fullName: reg.fullName.trim(),
-        companyName: reg.companyName.trim() || null,
-        phoneNumber: reg.phoneNumber.trim() || null,
+      if (regKind === 'admin') {
+        await api.superadmin.registerAdmin({
+          username: reg.username.trim(),
+          fullName,
+          password: reg.password,
+        });
+      } else {
+        await api.superadmin.registerRealtor({
+          username: reg.username.trim(),
+          password: reg.password,
+          fullName,
+          companyName: reg.companyName.trim() || null,
+          phoneNumber: reg.phoneNumber.trim() || null,
+        });
+      }
+      setRegResult({
+        kind: 'ok',
+        text: `${regKind === 'admin' ? 'Администратор' : 'Риелтор'} «${fullName}» создан. `
+          + 'Пароль разовый — при первом входе аккаунт попросит сменить его.',
       });
-      setRegResult({ kind: 'ok', text: `Риелтор «${reg.fullName.trim()}» зарегистрирован` });
       setReg({ username: '', password: '', fullName: '', companyName: '', phoneNumber: '' });
-      load(); // refresh the realtor list
+      load(); // обновляем список
     } catch (err) {
-      // 404 = the backend hasn't shipped POST /realtors yet; 409 = username taken.
       const text =
-        err?.status === 404
-          ? 'Бэкенд ещё не поддерживает регистрацию риелторов (нет POST /realtors).'
-          : err?.status === 409
-            ? 'Такой логин уже занят.'
+        err?.status === 409
+          ? 'Такой логин уже занят.'
+          : err?.status === 400
+            ? (err?.problem?.detail
+              ?? 'Пароль слишком простой: минимум 6 символов, заглавная и строчная буква, цифра и спецсимвол.')
             : err?.message || 'Регистрация недоступна на бэкенде';
       setRegResult({ kind: 'err', text });
     } finally {
@@ -322,12 +344,19 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
           </div>
 
           <div className="flex items-center gap-3">
-            {tab === 'realtors' && (
+            {(tab === 'realtors' || tab === 'admins') && (
               <button
-                onClick={() => { setShowRegister(true); setRegResult(null); }}
+                onClick={() => {
+                  setRegKind(tab === 'admins' ? 'admin' : 'realtor');
+                  setShowRegister(true);
+                  setRegResult(null);
+                  setGeneratedPassword('');
+                  setPasswordCopied(false);
+                }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[9px] font-mono uppercase font-bold tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all cursor-pointer"
               >
-                <UserPlus size={12} /> Зарегистрировать риелтора
+                <UserPlus size={12} />
+                {tab === 'admins' ? 'Создать администратора' : 'Зарегистрировать риелтора'}
               </button>
             )}
             <button
@@ -582,7 +611,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
         </div>
       )}
 
-      {/* Register realtor modal */}
+      {/* Регистрация риелтора / администратора */}
       {showRegister && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -594,7 +623,8 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
           >
             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
               <h3 className="font-serif text-base text-white flex items-center gap-2">
-                <UserPlus size={16} className="text-rose-400" /> Новый риелтор
+                <UserPlus size={16} className="text-rose-400" />
+                {regKind === 'admin' ? 'Новый администратор' : 'Новый риелтор'}
               </h3>
               <button
                 onClick={() => setShowRegister(false)}
@@ -608,9 +638,11 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
               {[
                 { k: 'fullName', label: 'ФИО *' },
                 { k: 'username', label: 'Логин *' },
-                { k: 'password', label: 'Пароль *', isPassword: true },
-                { k: 'companyName', label: 'Компания' },
-                { k: 'phoneNumber', label: 'Телефон' },
+                { k: 'password', label: 'Разовый пароль *', isPassword: true },
+                // Компания и телефон — только у риелтора; у админа этих полей в аккаунте нет.
+                ...(regKind === 'admin'
+                  ? []
+                  : [{ k: 'companyName', label: 'Компания' }, { k: 'phoneNumber', label: 'Телефон' }]),
               ].map((f) => {
                 const inputCls =
                   'w-full p-2.5 bg-white/5 border border-white/10 rounded text-white focus:outline-none focus:border-rose-400/50 font-mono';
@@ -620,13 +652,60 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                       {f.label}
                     </label>
                     {f.isPassword ? (
-                      <PasswordInput
-                        value={reg[f.k]}
-                        onChange={(e) => setReg((r) => ({ ...r, [f.k]: e.target.value }))}
-                        className={inputCls}
-                        iconClassName="text-gray-500 hover:text-white"
-                        placeholder=""
-                      />
+                      <div className="space-y-2">
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <PasswordInput
+                              value={reg[f.k]}
+                              onChange={(e) => {
+                                setReg((r) => ({ ...r, [f.k]: e.target.value }));
+                                setGeneratedPassword('');
+                              }}
+                              className={inputCls}
+                              iconClassName="text-gray-500 hover:text-white"
+                              placeholder=""
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const pwd = generateOneTimePassword();
+                              setReg((r) => ({ ...r, password: pwd }));
+                              setGeneratedPassword(pwd);
+                              setPasswordCopied(false);
+                            }}
+                            title="Сгенерировать пароль"
+                            className="shrink-0 inline-flex items-center gap-1.5 px-3 rounded border border-rose-500/30 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 text-[9px] font-mono uppercase font-bold tracking-wider transition-all cursor-pointer"
+                          >
+                            <Wand2 size={12} /> Сгенерировать
+                          </button>
+                        </div>
+
+                        {generatedPassword && (
+                          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded px-3 py-2">
+                            <code className="flex-1 font-mono text-[12px] text-emerald-300 break-all select-all">
+                              {generatedPassword}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(generatedPassword);
+                                  setPasswordCopied(true);
+                                } catch {
+                                  // Буфер обмена недоступен (http на локальном адресе) — пароль
+                                  // всё равно виден и его можно выделить руками.
+                                  setPasswordCopied(false);
+                                }
+                              }}
+                              title="Скопировать"
+                              className="shrink-0 text-gray-400 hover:text-white cursor-pointer"
+                            >
+                              {passwordCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <input
                         type="text"
@@ -638,6 +717,11 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                   </div>
                 );
               })}
+
+              <p className="text-[9px] text-gray-500 font-mono leading-relaxed">
+                Пароль разовый: минимум 6 символов, заглавная и строчная буква, цифра и спецсимвол.
+                При первом входе аккаунт не пустит в панель, пока не сменит его на свой.
+              </p>
 
               {regResult && (
                 <p className={`text-[10px] font-mono ${regResult.kind === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>
