@@ -250,6 +250,8 @@ export function mapRealtorStatFromApi(dto) {
   return {
     id: dto.id || dto.userId || dto.realtorId,
     fullName: dto.fullName || dto.name || 'Риелтор',
+    // Логин аккаунта: супер-админ по нему сбрасывает пароль и называет его человеку.
+    username: dto.username || '',
     companyName: dto.companyName || dto.company || '',
     closedDeals: dto.closedDeals ?? dto.completedDeals ?? dto.succeededDeals ?? 0,
     totalDeals: dto.totalDeals ?? dto.dealsCount ?? null,

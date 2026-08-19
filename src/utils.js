@@ -78,3 +78,43 @@ export function generateOneTimePassword(length = 14) {
 
   return chars.join('');
 }
+
+/**
+ * Скопировать текст в буфер обмена. Возвращает true, если получилось.
+ *
+ * navigator.clipboard существует только в защищённом контексте: панель, открытая по http на
+ * локальном адресе (http://192.168.0.115:3000), его не получает, и вызов падал молча — кнопка
+ * «скопировать» просто ничего не делала. Поэтому здесь есть запасной путь через временную
+ * textarea и document.execCommand('copy'): он устарел, но работает и без https.
+ */
+export async function copyToClipboard(text) {
+  const value = String(text ?? '');
+  if (!value) return false;
+
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Разрешение не выдано или контекст всё-таки не тот — пробуем запасной путь ниже.
+    }
+  }
+
+  try {
+    const area = document.createElement('textarea');
+    area.value = value;
+    // Вне экрана, но в документе: невидимый через display:none элемент выделить нельзя.
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    area.setSelectionRange(0, value.length);
+    const ok = document.execCommand('copy');
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}

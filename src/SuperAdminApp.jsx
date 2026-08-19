@@ -27,7 +27,7 @@ import {
   Copy,
   Check,
 } from 'lucide-react';
-import { generateOneTimePassword } from './utils';
+import { generateOneTimePassword, copyToClipboard } from './utils';
 
 // Super-admin workspace: moderate investors and realtors (ban/unban) and manage
 // admin/realtor passwords (reset). Authentication and role routing live in the
@@ -81,6 +81,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   // а второй раз он его уже нигде не увидит.
   const [generatedPassword, setGeneratedPassword] = useState('');
   const [passwordCopied, setPasswordCopied] = useState(false);
+  const [passwordCopyFailed, setPasswordCopyFailed] = useState(false);
   const [regResult, setRegResult] = useState(null); // { kind: 'ok'|'err', text }
 
   const load = useCallback(() => {
@@ -397,6 +398,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                   setRegResult(null);
                   setGeneratedPassword('');
                   setPasswordCopied(false);
+                  setPasswordCopyFailed(false);
                 }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[9px] font-mono uppercase font-bold tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all cursor-pointer"
               >
@@ -595,8 +597,10 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                   // Passwords exist only for admins and realtors; investors log in via
                   // phone-OTP and have none, so no reset/restore for them.
                   const canManagePassword = isRealtor || isAdmin;
+                  // У риелтора логин важнее компании: именно его называют при сбросе пароля,
+                  // поэтому он идёт первым, а компания остаётся рядом, если она указана.
                   const subtitle = isRealtor
-                    ? row.companyName || 'Риелтор'
+                    ? [row.username && `@${row.username}`, row.companyName].filter(Boolean).join(' · ') || 'Риелтор'
                     : isAdmin
                       ? row.username || row.email || 'Администратор'
                       : row.phone || row.email || '—';
@@ -798,6 +802,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                               setReg((r) => ({ ...r, password: pwd }));
                               setGeneratedPassword(pwd);
                               setPasswordCopied(false);
+                              setPasswordCopyFailed(false);
                             }}
                             title="Сгенерировать пароль"
                             className="shrink-0 inline-flex items-center gap-1.5 px-3 rounded border border-rose-500/30 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 text-[9px] font-mono uppercase font-bold tracking-wider transition-all cursor-pointer"
@@ -814,14 +819,9 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                             <button
                               type="button"
                               onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(generatedPassword);
-                                  setPasswordCopied(true);
-                                } catch {
-                                  // Буфер обмена недоступен (http на локальном адресе) — пароль
-                                  // всё равно виден и его можно выделить руками.
-                                  setPasswordCopied(false);
-                                }
+                                const ok = await copyToClipboard(generatedPassword);
+                                setPasswordCopied(ok);
+                                setPasswordCopyFailed(!ok);
                               }}
                               title="Скопировать"
                               className="shrink-0 text-gray-400 hover:text-white cursor-pointer"
@@ -829,6 +829,12 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                               {passwordCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
                             </button>
                           </div>
+                        )}
+
+                        {passwordCopyFailed && (
+                          <p className="text-[9px] font-mono text-amber-400">
+                            Браузер не дал доступ к буферу обмена — выделите пароль и скопируйте вручную.
+                          </p>
                         )}
                       </div>
                     ) : (
