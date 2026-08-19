@@ -17,6 +17,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import api from '../api';
+import InvestorLink from './InvestorLink';
 
 // Where a purchase request stands on the way to being minted. A request appears here the moment the
 // investor presses buy — nothing on this screen creates one.
@@ -80,7 +81,7 @@ async function downloadResponse(response, fallbackName) {
  * Everything hangs off the selected issue: shares are minted on that issue's own permissioned
  * contract, so a batch spanning two issues has no single contract to be executed against.
  */
-export default function Whitelist({ properties = [], onAddLog }) {
+export default function Whitelist({ properties = [], investors = [], onOpenInvestor, onAddLog }) {
   // Пустая строка = все выпуски. Именно так экран и открывается: заявка приходит по любому
   // объекту, и заставлять оператора угадывать, по какому именно, — способ её не увидеть.
   const [propertyId, setPropertyId] = useState('');
@@ -257,7 +258,12 @@ export default function Whitelist({ properties = [], onAddLog }) {
       )}
 
       {openList ? (
-        <MintListDetail list={openList} onBack={() => setOpenList(null)} />
+        <MintListDetail
+          list={openList}
+          investors={investors}
+          onOpenInvestor={onOpenInvestor}
+          onBack={() => setOpenList(null)}
+        />
       ) : loading ? (
         <div className="py-20 flex flex-col items-center justify-center gap-3 text-gray-400">
           <Loader2 size={26} className="animate-spin text-[#A38D6D]" />
@@ -378,7 +384,13 @@ export default function Whitelist({ properties = [], onAddLog }) {
                           <td className="px-4 py-3 text-right font-mono text-gray-900">
                             {fmtTokens(e.tokenCount)}
                           </td>
-                          <td className="px-4 py-3 font-mono text-gray-500">{shortId(e.investorId)}</td>
+                          <td className="px-4 py-3 font-mono text-gray-500">
+                            <InvestorLink
+                              investorId={e.investorId}
+                              investors={investors}
+                              onOpenInvestor={onOpenInvestor}
+                            />
+                          </td>
                           <td className="px-4 py-3 font-mono text-gray-400">
                             {formatDateTime(e.requestedAtUtc)}
                           </td>
@@ -580,7 +592,7 @@ export default function Whitelist({ properties = [], onAddLog }) {
 }
 
 /** A batch with its lines — exactly what the exchange is handed, on screen. */
-function MintListDetail({ list, onBack }) {
+function MintListDetail({ list, investors = [], onOpenInvestor, onBack }) {
   const header = list?.mintList ?? {};
   const items = list?.items ?? [];
   const meta = LIST_STATUS[header.status] ?? LIST_STATUS.Draft;
@@ -620,7 +632,13 @@ function MintListDetail({ list, onBack }) {
               <tr key={i.whitelistEntryId} className="border-t border-gray-100">
                 <td className="px-4 py-3 font-mono text-gray-900">{i.walletAddress}</td>
                 <td className="px-4 py-3 text-right font-mono text-gray-900">{fmtTokens(i.tokenCount)}</td>
-                <td className="px-4 py-3 font-mono text-gray-500">{shortId(i.investorId)}</td>
+                <td className="px-4 py-3 font-mono text-gray-500">
+                  <InvestorLink
+                    investorId={i.investorId}
+                    investors={investors}
+                    onOpenInvestor={onOpenInvestor}
+                  />
+                </td>
                 <td className="px-4 py-3 font-mono text-gray-500">{shortId(i.investmentId)}</td>
               </tr>
             ))}

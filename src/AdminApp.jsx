@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api, { tokenStore } from './api';
 import {
   mapPropertyFromApi,
@@ -35,6 +35,15 @@ import { Shield } from 'lucide-react';
 // receives the current user + a logout callback as props.
 export default function AdminApp({ currentUser, onLogout }) {
   const [currentSection, setCurrentSection] = useState('dashboard');
+  // Инвестор, на которого нас перекинули из реестра держателей: раздел «Пользователи»
+  // подсветит и прокрутит его строку, после чего сбросит подсветку.
+  const [focusedInvestorId, setFocusedInvestorId] = useState(null);
+
+  const openInvestorCard = useCallback((investorId) => {
+    if (!investorId) return;
+    setFocusedInvestorId(investorId);
+    setCurrentSection('users');
+  }, []);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currency, setCurrency] = useState('KGS');
 
@@ -349,9 +358,23 @@ export default function AdminApp({ currentUser, onLogout }) {
       case 'whitelist':
         // Read fresh from /whitelist on mount: requests are approved and batched while the screen
         // is open, and a batch must never be assembled against a stale queue.
-        return <Whitelist properties={properties} onAddLog={handleAddAuditLog} />;
+        return (
+          <Whitelist
+            properties={properties}
+            investors={investors}
+            onOpenInvestor={openInvestorCard}
+            onAddLog={handleAddAuditLog}
+          />
+        );
       case 'registry':
-        return <HolderRegistry properties={properties} onAddLog={handleAddAuditLog} />;
+        return (
+          <HolderRegistry
+            properties={properties}
+            investors={investors}
+            onOpenInvestor={openInvestorCard}
+            onAddLog={handleAddAuditLog}
+          />
+        );
       case 'investors':
         return (
           <PayoutsAndInvestors
@@ -378,6 +401,8 @@ export default function AdminApp({ currentUser, onLogout }) {
             <UsersAndKyc
               investors={investors}
               setInvestors={setInvestors}
+              highlightInvestorId={focusedInvestorId}
+              onHighlightHandled={() => setFocusedInvestorId(null)}
               onAddLog={handleAddAuditLog}
             />
           </div>

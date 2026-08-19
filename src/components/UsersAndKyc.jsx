@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { mapInvestorHoldingFromApi, mapKycStatus } from '../api/mappers';
 import { ShieldCheck, Search, Mail, ShieldAlert, RefreshCw, Loader2 } from 'lucide-react';
@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from 'motion/react';
 export default function UsersAndKyc({
   investors, 
   setInvestors,
+  highlightInvestorId = null,
+  onHighlightHandled,
   onAddLog
 }) {
   const [selectedInv, setSelectedInv] = useState(null);
@@ -53,6 +55,34 @@ export default function UsersAndKyc({
       cancelled = true;
     };
   }, [selectedInv]);
+
+  // Переход из реестра держателей: снимаем поиск, чтобы строка точно попала в список,
+  // прокручиваем к ней и держим подсветку несколько секунд.
+  const [highlightedId, setHighlightedId] = useState(null);
+  const onHighlightHandledRef = useRef(onHighlightHandled);
+  onHighlightHandledRef.current = onHighlightHandled;
+
+  useEffect(() => {
+    if (!highlightInvestorId) return;
+    setSearchQuery('');
+    setHighlightedId(highlightInvestorId);
+
+    const scrollTimer = setTimeout(() => {
+      document
+        .getElementById(`investor-row-${highlightInvestorId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+    const clearTimer = setTimeout(() => {
+      setHighlightedId(null);
+      onHighlightHandledRef.current?.();
+    }, 6000);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(clearTimer);
+    };
+    // onHighlightHandled намеренно не в зависимостях: родитель передаёт стрелку,
+    // и таймеры перезапускались бы на каждый рендер.
+  }, [highlightInvestorId]);
 
   const filteredInvestors = investors.filter(inv => {
     if (!searchQuery) return true;
@@ -151,7 +181,13 @@ export default function UsersAndKyc({
                 const totalTokens = (inv.holdings || []).reduce((sum, h) => sum + (h.tokensOwned || 0), 0);
 
                 return (
-                  <tr key={inv.id} className="hover:bg-gray-50/50">
+                  <tr
+                    key={inv.id}
+                    id={`investor-row-${inv.id}`}
+                    className={`hover:bg-gray-50/50 transition-colors duration-500 ${
+                      highlightedId === inv.id ? 'bg-[#A38D6D]/12 ring-1 ring-inset ring-[#A38D6D]' : ''
+                    }`}
+                  >
                     <td className="py-3.5 px-4 text-left">
                       <span className="font-bold text-gray-950 font-serif block">{inv.name}</span>
                       <span className="text-[9px] text-gray-400 font-mono flex items-center gap-1">

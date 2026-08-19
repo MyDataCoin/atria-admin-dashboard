@@ -11,6 +11,7 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 import api from '../api';
+import InvestorLink from './InvestorLink';
 
 // Why a snapshot was taken. A payout run and a regulatory statement drawn on the same date are
 // separate, independently auditable snapshots — hence the choice at cut time.
@@ -32,8 +33,6 @@ function formatDateTime(iso) {
   });
 }
 
-const shortId = (id) => (id ? `${String(id).slice(0, 8)}…` : '—');
-const sharePercent = (share) => `${(Number(share ?? 0) * 100).toFixed(4)} %`;
 
 /**
  * The holder register of an issue: who holds what now, the frozen snapshots of who held what at a
@@ -41,7 +40,7 @@ const sharePercent = (share) => `${(Number(share ?? 0) * 100).toFixed(4)} %`;
  *
  * The register is per issue, so everything here hangs off the selected property.
  */
-export default function HolderRegistry({ properties = [], onAddLog }) {
+export default function HolderRegistry({ properties = [], investors = [], onOpenInvestor, onAddLog }) {
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? '');
   const [search, setSearch] = useState('');
 
@@ -171,7 +170,12 @@ export default function HolderRegistry({ properties = [], onAddLog }) {
       )}
 
       {openSnapshot ? (
-        <SnapshotDetail snapshot={openSnapshot} onBack={() => setOpenSnapshot(null)} />
+        <SnapshotDetail
+          snapshot={openSnapshot}
+          investors={investors}
+          onOpenInvestor={onOpenInvestor}
+          onBack={() => setOpenSnapshot(null)}
+        />
       ) : (
         <>
           <form
@@ -276,7 +280,13 @@ export default function HolderRegistry({ properties = [], onAddLog }) {
                               {Number(p.tokenCount ?? 0).toLocaleString('ru-RU')}
                             </td>
                             <td className="px-4 py-3 font-mono text-gray-500">
-                              {p.investorId ? shortId(p.investorId) : (
+                              {p.investorId ? (
+                                <InvestorLink
+                                  investorId={p.investorId}
+                                  investors={investors}
+                                  onOpenInvestor={onOpenInvestor}
+                                />
+                              ) : (
                                 // No link to an investor is a signal to investigate, not a
                                 // steady state: every holder is a wallet we allowlisted.
                                 <span className="inline-flex items-center gap-1 text-amber-600">
@@ -374,7 +384,7 @@ export default function HolderRegistry({ properties = [], onAddLog }) {
 }
 
 /** A frozen snapshot with its rows. Immutable by construction — there is nothing to edit here. */
-function SnapshotDetail({ snapshot, onBack }) {
+function SnapshotDetail({ snapshot, investors = [], onOpenInvestor, onBack }) {
   const header = snapshot.snapshot ?? {};
   const rows = snapshot.rows ?? [];
 
@@ -435,7 +445,11 @@ function SnapshotDetail({ snapshot, onBack }) {
                 </td>
                 <td className="px-4 py-3 text-right font-mono text-gray-900">{sharePercent(r.share)}</td>
                 <td className="px-4 py-3 font-mono text-gray-500">
-                  {r.investorId ? shortId(r.investorId) : '—'}
+                  <InvestorLink
+                    investorId={r.investorId}
+                    investors={investors}
+                    onOpenInvestor={onOpenInvestor}
+                  />
                 </td>
               </tr>
             ))}
