@@ -20,6 +20,9 @@ import {
   Activity,
   UserPlus,
   Inbox,
+  MessageCircle,
+  Mail,
+  Phone,
   Wand2,
   Copy,
   Check,
@@ -33,6 +36,19 @@ import { generateOneTimePassword } from './utils';
 // The backend has NONE of these operations yet (superadmin role, ban, password routes —
 // all missing; see BACKEND-SUPERADMIN.md). Every action calls the proposed endpoint and
 // surfaces the failure inline, so the moment the backend ships them, this works as-is.
+// Бэкенд отдаёт UTC без суффикса — без 'Z' браузер прочитает это как локальное время.
+function formatFeedbackDate(iso) {
+  if (!iso) return '—';
+  const raw = /([Zz]|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}Z`;
+  return new Date(raw).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export default function SuperAdminApp({ currentUser, onLogout }) {
   const [tab, setTab] = useState('investors'); // investors | realtors | admins
   const [query, setQuery] = useState('');
@@ -42,6 +58,9 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   const [admins, setAdmins] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
   const [appeals, setAppeals] = useState([]);
+  // Вопросы из формы обратной связи на публичном сайте: почтой они никуда не уходят, читаем здесь.
+  const [feedback, setFeedback] = useState([]);
+  const [feedbackHandledShown, setFeedbackHandledShown] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -72,8 +91,9 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
       api.superadmin.listAdmins(),
       api.audit.query({ pageSize: 200 }),
       api.superadmin.listAppeals(),
+      api.feedback.list(),
     ])
-      .then(([inv, rea, adm, aud, app]) => {
+      .then(([inv, rea, adm, aud, app, fb]) => {
         if (inv.status === 'fulfilled') {
           const rows = Array.isArray(inv.value) ? inv.value : inv.value?.items || [];
           setInvestors(rows.filter((u) => u.status != null).map(mapInvestorFromApi));
@@ -105,6 +125,10 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
           const rows = Array.isArray(app.value) ? app.value : app.value?.items || [];
           setAppeals(rows.map(mapAppealFromApi));
         }
+        if (fb.status === 'fulfilled') {
+          const rows = Array.isArray(fb.value) ? fb.value : fb.value?.items || [];
+          setFeedback(rows);
+        }
         // Only a hard error on both is worth a banner; partial data still renders.
         // A 403 here is a backend authorization gap (SuperAdmin not allowed to read
         // /users & /realtors/stats), not an empty registry — say so explicitly.
@@ -127,6 +151,19 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
   }, [load]);
 
   const setRowBusy = (id, state) => setBusy((b) => ({ ...b, [id]: state }));
+
+  // Хелп-деск: новые вопросы отделены от разобранных, счётчик на вкладке считает только новые.
+  const openFeedback = feedback.filter((f) => !f.handledAtUtc);
+  const handledFeedback = feedback.filter((f) => f.handledAtUtc);
+
+  const markFeedbackHandled = (row) =>
+    runAction(
+      row.id,
+      'feedback',
+      () => api.feedback.markHandled(row.id),
+      'Обращение отмечено как обработанное',
+      { reload: true }
+    );
 
   // `okText` may be a string or a fn(result) -> string. `reload` re-reads the list
   // afterwards (needed only when the blocked flag changed).
@@ -331,6 +368,14 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             >
               <Inbox size={12} /> Обращения ({appeals.length})
             </button>
+            <button
+              onClick={() => setTab('feedback')}
+              className={`px-3 py-1.5 rounded-sm transition-all cursor-pointer flex items-center gap-1.5 ${
+                tab === 'feedback' ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              <MessageCircle size={12} /> Обратная связь ({openFeedback.length})
+            </button>
           </div>
 
           <div className="relative sm:w-72">
@@ -441,6 +486,86 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             {!loading && appeals.length === 0 && (
               <div className="bg-[#141414] border border-white/10 rounded-sm py-10 text-center text-gray-500 italic font-mono text-[11px]">
                 Обращений нет.
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Хелп-деск: вопросы из формы обратной связи на публичном сайте */}
+        {tab === 'feedback' && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setFeedbackHandledShown(false)}
+                className={`px-3 py-1.5 rounded text-[9px] font-mono uppercase font-bold tracking-wider transition-all cursor-pointer ${
+                  !feedbackHandledShown ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Новые ({openFeedback.length})
+              </button>
+              <button
+                onClick={() => setFeedbackHandledShown(true)}
+                className={`px-3 py-1.5 rounded text-[9px] font-mono uppercase font-bold tracking-wider transition-all cursor-pointer ${
+                  feedbackHandledShown ? 'bg-white text-gray-900' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Обработанные ({handledFeedback.length})
+              </button>
+              <span className="text-[9px] font-mono text-gray-500 ml-auto">
+                Письма никуда не уходят — обращения читаются здесь. Записи старше 90 дней удаляются автоматически.
+              </span>
+            </div>
+
+            {(feedbackHandledShown ? handledFeedback : openFeedback)
+              .filter((f) => !q || `${f.fullName} ${f.email} ${f.phone} ${f.message}`.toLowerCase().includes(q))
+              .map((f) => (
+                <div key={f.id} className="bg-[#141414] border border-white/10 rounded-sm p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+                    <div className="min-w-0">
+                      <span className="font-bold text-white font-serif text-sm block">{f.fullName}</span>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-[10px] font-mono text-gray-400">
+                        {f.email && (
+                          <a href={`mailto:${f.email}`} className="flex items-center gap-1.5 hover:text-white">
+                            <Mail size={11} /> {f.email}
+                          </a>
+                        )}
+                        {f.phone && (
+                          <a
+                            href={`tel:${String(f.phone).replace(/[^\d+]/g, '')}`}
+                            className="flex items-center gap-1.5 hover:text-white"
+                          >
+                            <Phone size={11} /> {f.phone}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <span className="text-[9px] font-mono text-gray-500 shrink-0">
+                      {formatFeedbackDate(f.createdAtUtc)}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">{f.message}</p>
+
+                  {f.handledAtUtc ? (
+                    <span className="mt-3 inline-flex items-center gap-1.5 text-[9px] font-mono uppercase font-bold tracking-wider text-emerald-400">
+                      <Check size={11} /> Обработано · {formatFeedbackDate(f.handledAtUtc)}
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => markFeedbackHandled(f)}
+                      disabled={busy[f.id] === 'feedback'}
+                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50 text-[9px] font-mono uppercase font-bold tracking-wider transition-all cursor-pointer"
+                    >
+                      <Check size={11} />
+                      {busy[f.id] === 'feedback' ? 'Отмечаем…' : 'Отметить обработанным'}
+                    </button>
+                  )}
+                </div>
+              ))}
+
+            {!loading && (feedbackHandledShown ? handledFeedback : openFeedback).length === 0 && (
+              <div className="bg-[#141414] border border-white/10 rounded-sm py-10 text-center text-gray-500 italic font-mono text-[11px]">
+                {feedbackHandledShown ? 'Обработанных обращений нет.' : 'Новых обращений нет.'}
               </div>
             )}
           </div>

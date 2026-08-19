@@ -329,6 +329,16 @@ export const admin = {
   realtorStats: () => request('/realtors/stats'),
 };
 
+// ---- Обратная связь с публичного сайта -------------------------------------
+// Форму на сайте заполняет посетитель без аккаунта (POST /feedback анонимный);
+// панель читает обращения и отмечает их обработанными. Записи старше 90 дней
+// удаляются на бэкенде сами — это обещано в тексте согласия под формой.
+
+export const feedback = {
+  list: () => request('/feedback'),
+  markHandled: (id) => request(`/feedback/${id}/handled`, { method: 'POST' }),
+};
+
 // ---- Super admin ----------------------------------------------------------
 // Ban/unban accounts and reset/restore passwords for admins & realtors.
 // ALL PROPOSED — the backend has no superadmin role and none of these routes yet
@@ -485,4 +495,5 @@ export default {
   admin,
   superadmin,
   appeals,
+  feedback,
 };
