@@ -33,6 +33,7 @@ function formatDateTime(iso) {
   });
 }
 
+const sharePercent = (share) => `${(Number(share ?? 0) * 100).toFixed(4)} %`;
 
 /**
  * The holder register of an issue: who holds what now, the frozen snapshots of who held what at a

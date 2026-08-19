@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import api, { tokenStore } from './api';
 import {
   mapPropertyFromApi,
+  mapBuildingFromApi,
   mapInvestorFromApi,
   mapInvestorHoldingFromApi,
   mapRealtorStatFromApi,
@@ -53,6 +54,8 @@ export default function AdminApp({ currentUser, onLogout }) {
   const [propertiesLoading, setPropertiesLoading] = useState(false);
   const [propertiesError, setPropertiesError] = useState('');
   const [placements, setPlacements] = useState([]);
+  // Здания нужны сводке: доли выпускаются на помещение, а продаётся в глазах оператора — дом.
+  const [buildings, setBuildings] = useState([]);
   const [investors, setInvestors] = useState([]);
   const [investorsLoading, setInvestorsLoading] = useState(false);
   const [investorsError, setInvestorsError] = useState('');
@@ -92,6 +95,14 @@ export default function AdminApp({ currentUser, onLogout }) {
   useEffect(() => {
     loadProperties();
   }, [loadProperties]);
+
+  useEffect(() => {
+    api.buildings
+      .list()
+      .then((list) => setBuildings(Array.isArray(list) ? list.map(mapBuildingFromApi) : []))
+      // Без списка зданий сводка просто покажет помещения по отдельности — это не повод рушить экран.
+      .catch(() => setBuildings([]));
+  }, []);
 
   // Load the investor registry (user ⋈ kyc_profiles). Needs an Admin JWT — on any
   // failure we keep the demo investors and show the reason in a banner. The registry
@@ -275,6 +286,8 @@ export default function AdminApp({ currentUser, onLogout }) {
               totalObjects: properties.length,
               activePlacements: placements.filter(p => p.status === 'active').length,
               totalInvestors: investors.length,
+              // Отдельно от общего числа: карточка показывает всю базу, а KYC — подписью под ней.
+              kycApprovedInvestors: investors.filter((inv) => inv.kycStatus === 'Approved').length,
               // Real invested volume = sum of every investor's active holdings, in the
               // holdings' own currency (no FX conversion — the amounts are already in
               // that currency). Deriving it from placements overstated it, because the
@@ -296,6 +309,7 @@ export default function AdminApp({ currentUser, onLogout }) {
               auditLogsCount: auditLogs.length
             }}
             properties={properties}
+            buildings={buildings}
             placements={placements}
             payouts={[]}
             realtors={realtors}

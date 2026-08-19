@@ -60,7 +60,9 @@ export default function UsersAndKyc({
   // прокручиваем к ней и держим подсветку несколько секунд.
   const [highlightedId, setHighlightedId] = useState(null);
   const onHighlightHandledRef = useRef(onHighlightHandled);
-  onHighlightHandledRef.current = onHighlightHandled;
+  useEffect(() => {
+    onHighlightHandledRef.current = onHighlightHandled;
+  }, [onHighlightHandled]);
 
   useEffect(() => {
     if (!highlightInvestorId) return;

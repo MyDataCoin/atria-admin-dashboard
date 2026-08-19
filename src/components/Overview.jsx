@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Building,
   Coins,
@@ -11,10 +11,14 @@ import {
   TrendingDown,
   Award,
   Medal,
-  Sparkles
+  Sparkles,
+  Home,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatVal } from '../utils';
+import PropertyDetailPanel from './PropertyDetailPanel';
 
 // Realtor tier from completed-deal count, relative to the leader:
 //   #1 (most completed) → Топ; some completed → Профессионал; none/very few → Новичок.
@@ -31,6 +35,7 @@ function realtorTier(closedDeals, maxClosed) {
 export default function Overview({
   stats,
   properties,
+  buildings = [],
   placements,
   payouts,
   realtors = [],
@@ -93,12 +98,14 @@ export default function Overview({
     {
       id: 'investors',
       label: 'База инвесторов',
+      // Вся база, а не только прошедшие KYC: зарегистрированный без верификации — тоже инвестор,
+      // и как раз разрыв между этими двумя числами показывает, сколько людей застряло на проверке.
       value: stats.totalInvestors,
       icon: Users,
-      desc: 'KYC-верифицированные аккаунты',
+      desc: 'Все зарегистрированные аккаунты',
       subtext: stats.kycVerificationRate == null
-        ? 'Верификация: данных пока нет'
-        : `${stats.kycVerificationRate}% успешной верификации`,
+        ? 'KYC: данных пока нет'
+        : `${stats.kycApprovedInvestors ?? 0} с пройденным KYC · ${stats.kycVerificationRate}%`,
       color: 'border-l-4 border-emerald-600'
     },
     {
@@ -114,27 +121,108 @@ export default function Overview({
     }
   ];
 
-  // How well each property sells: share of its token supply already taken.
-  // sold = totalTokens − availableTokens; pct = sold / totalTokens.
-  // Only offerings still on sale — sold-out/closed ones (archived, 100% taken) are
-  // excluded: "how it sells" is only meaningful while it's actually being sold.
-  const salesRanking = properties
-    .filter((p) => p.status === 'active')
-    .map((p) => {
+  // Как продаётся объект. Доли выпускаются на помещение, но оператор смотрит на дом целиком:
+  // помещения одного здания складываем в один ряд, а отдельные объекты остаются сами по себе.
+  const buildingNameById = useMemo(
+    () => Object.fromEntries(buildings.map((b) => [b.id, b.name])),
+    [buildings]
+  );
+
+  const unitLabel = (p) => (p.unitNumber ? `${p.name} · №${p.unitNumber}` : p.name);
+
+  const salesGroups = useMemo(() => {
+    const groups = new Map();
+
+    for (const p of properties.filter((x) => x.status === 'active')) {
+      const key = p.buildingId || `standalone-${p.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          isBuilding: !!p.buildingId,
+          name: p.buildingId ? (buildingNameById[p.buildingId] || 'Здание') : p.name,
+          city: p.city || '',
+          units: [],
+        });
+      }
       const total = p.totalTokens ?? 0;
       const available = p.availableTokens ?? total;
       const sold = Math.max(0, total - available);
-      const pct = total > 0 ? (sold / total) * 100 : 0;
-      return { id: p.id, name: p.name, city: p.city, sold, total, pct };
-    })
-    .sort((a, b) => b.pct - a.pct);
+      const price = p.tokenPrice ?? 0;
+      const group = groups.get(key);
+      group.currency = group.currency || p.currency || currency;
+      group.units.push({
+        id: p.id,
+        name: unitLabel(p),
+        sold,
+        total,
+        raised: sold * price,
+        target: total * price,
+        pct: total > 0 ? (sold / total) * 100 : 0,
+      });
+    }
 
-  const bestSellers = salesRanking.filter((p) => p.pct > 0).slice(0, 5);
-  // Worst = lowest sales among properties that are actually on sale (have supply).
-  const worstSellers = [...salesRanking]
-    .filter((p) => p.total > 0)
-    .sort((a, b) => a.pct - b.pct)
-    .slice(0, 5);
+    const list = [...groups.values()]
+      .map((g) => {
+        const sold = g.units.reduce((sum, u) => sum + u.sold, 0);
+        const total = g.units.reduce((sum, u) => sum + u.total, 0);
+        const raised = g.units.reduce((sum, u) => sum + u.raised, 0);
+        const target = g.units.reduce((sum, u) => sum + u.target, 0);
+        const ranked = [...g.units].sort((a, b) => b.pct - a.pct);
+        return {
+          ...g,
+          sold,
+          total,
+          raised,
+          target,
+          pct: total > 0 ? (sold / total) * 100 : 0,
+          units: ranked,
+          best: ranked[0],
+          worst: ranked.length > 1 ? ranked[ranked.length - 1] : null,
+        };
+      })
+      .sort((a, b) => b.pct - a.pct);
+
+    // Доля объекта в собранных деньгах: сам по себе процент выкупа не говорит, кто приносит выручку —
+    // 50% маленького выпуска и 5% большого стоят очень по-разному.
+    const raisedAll = list.reduce((sum, g) => sum + g.raised, 0);
+    return list.map((g) => ({
+      ...g,
+      shareOfRaised: raisedAll > 0 ? (g.raised / raisedAll) * 100 : 0,
+    }));
+  }, [properties, buildingNameById, currency]);
+
+  // Итог по всем объектам в продаже — шапка блока.
+  const salesTotals = useMemo(() => {
+    const sold = salesGroups.reduce((sum, g) => sum + g.sold, 0);
+    const total = salesGroups.reduce((sum, g) => sum + g.total, 0);
+    const raised = salesGroups.reduce((sum, g) => sum + g.raised, 0);
+    const target = salesGroups.reduce((sum, g) => sum + g.target, 0);
+    return {
+      sold,
+      total,
+      raised,
+      target,
+      pct: total > 0 ? (sold / total) * 100 : 0,
+      units: salesGroups.reduce((sum, g) => sum + g.units.length, 0),
+      currency: salesGroups[0]?.currency || currency,
+    };
+  }, [salesGroups, currency]);
+
+  // Какие группы раскрыты (показывают помещения внутри).
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const toggleGroup = (key) => setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
+
+  // Объект, карточку которого раскрыли из сводки. Панель открывается прямо здесь: уводить
+  // человека в раздел объектов ради просмотра — лишний переход, из которого ещё надо вернуться.
+  const [openPropertyId, setOpenPropertyId] = useState(null);
+  const openProperty = openPropertyId ? properties.find((p) => p.id === openPropertyId) : null;
+
+  const placementStatus = (status) =>
+    status === 'active'
+      ? { label: 'Выпуск идет', cls: 'bg-emerald-50 text-emerald-700' }
+      : status === 'paused'
+        ? { label: 'Приостановлен', cls: 'bg-amber-50 text-amber-700' }
+        : { label: 'Успешно закрыт', cls: 'bg-blue-50 text-blue-700' };
 
   return (
     <div className="space-y-8 font-sans">
@@ -292,59 +380,182 @@ export default function Overview({
             <span className="text-[9px] font-mono text-gray-400 uppercase tracking-wider">% выкупленных долей</span>
           </div>
 
-          {salesRanking.length === 0 ? (
-            <p className="text-xs text-gray-400 italic py-10 text-center">Нет объектов для анализа.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-              {/* Best sellers */}
-              <div>
-                <span className="text-[9px] uppercase tracking-wider text-emerald-700 font-bold font-mono flex items-center gap-1.5 mb-3">
-                  <TrendingUp size={12} /> Лидеры продаж
-                </span>
-                {bestSellers.length === 0 ? (
-                  <p className="text-[11px] text-gray-400 italic">Пока никто не продаёт активно.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {bestSellers.map((p) => (
-                      <div key={p.id}>
-                        <div className="flex justify-between items-baseline mb-1">
-                          <span className="text-xs font-bold text-gray-900 truncate pr-2" title={p.name}>{p.name}</span>
-                          <span className="text-[11px] font-mono font-bold text-emerald-700 shrink-0">{p.pct.toFixed(1)}%</span>
-                        </div>
-                        <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
-                          <div className="h-full bg-emerald-500 rounded" style={{ width: `${Math.min(100, p.pct)}%` }} />
-                        </div>
-                        <span className="text-[8px] text-gray-400 font-mono mt-0.5 block">
-                          {p.sold.toLocaleString()} / {p.total.toLocaleString()} токенов
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Worst sellers */}
-              <div>
-                <span className="text-[9px] uppercase tracking-wider text-rose-700 font-bold font-mono flex items-center gap-1.5 mb-3">
-                  <TrendingDown size={12} /> Продаётся хуже
-                </span>
-                <div className="space-y-3">
-                  {worstSellers.map((p) => (
-                    <div key={p.id}>
-                      <div className="flex justify-between items-baseline mb-1">
-                        <span className="text-xs font-bold text-gray-900 truncate pr-2" title={p.name}>{p.name}</span>
-                        <span className="text-[11px] font-mono font-bold text-gray-500 shrink-0">{p.pct.toFixed(1)}%</span>
-                      </div>
-                      <div className="w-full bg-gray-100 h-1.5 rounded overflow-hidden">
-                        <div className="h-full bg-[#A38D6D] rounded" style={{ width: `${Math.min(100, Math.max(2, p.pct))}%` }} />
-                      </div>
-                      <span className="text-[8px] text-gray-400 font-mono mt-0.5 block">
-                        {p.sold.toLocaleString()} / {p.total.toLocaleString()} токенов
-                      </span>
-                    </div>
-                  ))}
+          {/* Сводка по всему, что сейчас в продаже: проценты по объектам читаются только на её фоне. */}
+          {salesGroups.length > 0 && (
+            <div className="grid grid-cols-3 gap-px bg-gray-100 border border-gray-100 rounded-lg overflow-hidden mt-4">
+              {[
+                {
+                  label: 'В продаже',
+                  value: `${salesGroups.length}`,
+                  hint: `${salesTotals.units} помещений`,
+                },
+                {
+                  label: 'Выкуплено долей',
+                  value: `${salesTotals.pct.toFixed(1)}%`,
+                  hint: `${salesTotals.sold.toLocaleString('ru-RU')} из ${salesTotals.total.toLocaleString('ru-RU')}`,
+                },
+                {
+                  label: 'Привлечено',
+                  value: `${Math.round(salesTotals.raised).toLocaleString('ru-RU')} ${salesTotals.currency}`,
+                  hint: `цель ${Math.round(salesTotals.target).toLocaleString('ru-RU')} ${salesTotals.currency}`,
+                },
+              ].map((m) => (
+                <div key={m.label} className="bg-white px-3 py-3">
+                  <span className="text-[8px] uppercase tracking-wider text-gray-400 font-bold block">
+                    {m.label}
+                  </span>
+                  <span className="text-sm font-mono font-bold text-gray-900 block mt-1 truncate" title={m.value}>
+                    {m.value}
+                  </span>
+                  <span className="text-[9px] font-mono text-gray-400 block truncate" title={m.hint}>
+                    {m.hint}
+                  </span>
                 </div>
-              </div>
+              ))}
+            </div>
+          )}
+
+          {salesGroups.length === 0 ? (
+            <p className="text-xs text-gray-400 italic py-10 text-center">Нет объектов в продаже.</p>
+          ) : (
+            <div className="mt-4 space-y-3">
+              {salesGroups.map((g, idx) => {
+                const isLeader = idx === 0 && g.pct > 0;
+                const isLaggard = salesGroups.length > 1 && idx === salesGroups.length - 1;
+                const expanded = !!expandedGroups[g.key];
+
+                return (
+                  <div
+                    key={g.key}
+                    className={`rounded-lg border transition-colors ${
+                      isLeader ? 'border-emerald-200 bg-emerald-50/40' : 'border-gray-100 bg-white'
+                    }`}
+                  >
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-[10px] font-bold text-gray-300 w-4 shrink-0">
+                              {idx + 1}
+                            </span>
+                            {g.isBuilding ? (
+                              <Building size={13} className="text-[#A38D6D] shrink-0" />
+                            ) : (
+                              <Home size={13} className="text-[#A38D6D] shrink-0" />
+                            )}
+                            <h4 className="text-sm font-serif font-bold text-gray-900 truncate" title={g.name}>
+                              {g.name}
+                            </h4>
+                            {isLeader && (
+                              <span className="shrink-0 inline-flex items-center gap-1 text-[8px] font-mono font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">
+                                <TrendingUp size={9} /> Лидер продаж
+                              </span>
+                            )}
+                            {isLaggard && !isLeader && (
+                              <span className="shrink-0 inline-flex items-center gap-1 text-[8px] font-mono font-bold uppercase tracking-wider bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded">
+                                <TrendingDown size={9} /> Слабее всех
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[9px] font-mono text-gray-400 block mt-1 ml-6 truncate">
+                            {[g.city, g.isBuilding ? `${g.units.length} помещений в продаже` : 'отдельный объект']
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </span>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <span className={`text-lg font-mono font-bold ${isLeader ? 'text-emerald-700' : 'text-gray-900'}`}>
+                            {g.pct.toFixed(1)}%
+                          </span>
+                          <span className="block text-[8px] font-mono text-gray-400">
+                            {g.sold.toLocaleString('ru-RU')} / {g.total.toLocaleString('ru-RU')} долей
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden mt-3">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${
+                            isLeader ? 'bg-emerald-500' : 'bg-[#A38D6D]'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(g.pct > 0 ? 2 : 0, g.pct))}%` }}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 mt-2 text-[9px] font-mono text-gray-500">
+                        <span>
+                          Привлечено{' '}
+                          <span className="font-bold text-gray-900">
+                            {Math.round(g.raised).toLocaleString('ru-RU')} {g.currency}
+                          </span>{' '}
+                          из {Math.round(g.target).toLocaleString('ru-RU')} {g.currency}
+                        </span>
+                        {g.shareOfRaised > 0 && (
+                          <span className="text-gray-400">
+                            {g.shareOfRaised.toFixed(0)}% всех продаж
+                          </span>
+                        )}
+                      </div>
+
+                      {/* У здания интересен не только дом целиком, но и какая именно квартира тянет продажи. */}
+                      {g.isBuilding && g.best && (
+                        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] ml-6">
+                          <span className="text-gray-500">
+                            Лучше всего:{' '}
+                            <span className="font-bold text-gray-900">{g.best.name}</span>{' '}
+                            <span className="font-mono text-emerald-700">{g.best.pct.toFixed(1)}%</span>
+                          </span>
+                          {g.worst && (
+                            <span className="text-gray-500">
+                              Хуже всего:{' '}
+                              <span className="font-bold text-gray-900">{g.worst.name}</span>{' '}
+                              <span className="font-mono text-gray-500">{g.worst.pct.toFixed(1)}%</span>
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {g.units.length > 1 && (
+                        <button
+                          onClick={() => toggleGroup(g.key)}
+                          className="mt-2 ml-6 inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider font-bold text-gray-400 hover:text-[#A38D6D] cursor-pointer"
+                        >
+                          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                          {expanded ? 'Свернуть' : `Показать помещения (${g.units.length})`}
+                        </button>
+                      )}
+                    </div>
+
+                    {expanded && g.units.length > 1 && (
+                      <div className="border-t border-gray-100 px-4 py-3 space-y-2.5 bg-gray-50/50 rounded-b-lg">
+                        {g.units.map((u) => (
+                          <div key={u.id}>
+                            <div className="flex justify-between items-baseline mb-1">
+                              <span className="text-[11px] text-gray-700 truncate pr-2" title={u.name}>
+                                {u.name}
+                              </span>
+                              <span className="text-[10px] font-mono font-bold text-gray-600 shrink-0">
+                                {u.pct.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200/70 h-1 rounded overflow-hidden">
+                              <div
+                                className="h-full bg-[#A38D6D] rounded"
+                                style={{ width: `${Math.min(100, Math.max(u.pct > 0 ? 2 : 0, u.pct))}%` }}
+                              />
+                            </div>
+                            <span className="text-[8px] text-gray-400 font-mono mt-0.5 block">
+                              {u.sold.toLocaleString('ru-RU')} / {u.total.toLocaleString('ru-RU')} долей ·{' '}
+                              {Math.round(u.raised).toLocaleString('ru-RU')} {g.currency}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -354,58 +565,88 @@ export default function Overview({
           <div>
             <div className="border-b border-gray-150 pb-3 mb-3">
               <span className="text-[8px] uppercase tracking-widest text-[#A38D6D] font-bold block">Сводный статус размещений</span>
-              <h3 className="text-base font-serif font-bold text-gray-900 mt-0.5">Активные оферты выпуска</h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-base font-serif font-bold text-gray-900 mt-0.5">Активные оферты выпуска</h3>
+                {onNavigate && (
+                  <button
+                    onClick={() => onNavigate('properties')}
+                    className="text-[9px] font-mono uppercase tracking-wider font-bold text-gray-400 hover:text-[#A38D6D] cursor-pointer shrink-0"
+                  >
+                    Все объекты
+                  </button>
+                )}
+              </div>
+              <p className="text-[9px] font-mono text-gray-400 mt-1">
+                Нажмите на выпуск — откроется карточка объекта
+              </p>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-1">
               {placements.map((plc) => {
                 const pct = Math.min(100, (plc.raisedAmount / plc.targetAmount) * 100);
+                const status = placementStatus(plc.status);
                 return (
-                  <div key={plc.id} className="border-b border-gray-50 pb-3 last:border-0 last:pb-0">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h4 className="text-xs font-bold text-gray-900 leading-tight">
+                  // Строка — кнопка: подробности выпуска живут в модалке, чтобы колонка со
+                  // сводкой оставалась сводкой и в неё помещались все размещения сразу.
+                  <button
+                    key={plc.id}
+                    type="button"
+                    onClick={() => setOpenPropertyId(plc.propertyId)}
+                    className="w-full text-left border-b border-gray-50 last:border-0 py-3 px-2 -mx-2 rounded hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
+                    <div className="flex justify-between items-start gap-3">
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-bold text-gray-900 leading-tight truncate">
                           {plc.propertyName}
                         </h4>
-                        <span className="text-[8px] text-gray-400 font-mono block mt-0.5">
-                          Код выпуска: {plc.id.toUpperCase()} • Цена: {formatVal(plc.tokenPrice, currency)}/ATR
+                        <span className="text-[8px] text-gray-400 font-mono block mt-0.5 truncate">
+                          {plc.id.toUpperCase()} • {formatVal(plc.tokenPrice, currency)}/ATR
                         </span>
                       </div>
-                      <span className={`text-[8px] font-mono font-bold uppercase px-2 py-0.5 rounded ${
-                        plc.status === 'active' ? 'bg-emerald-50 text-emerald-700' :
-                        plc.status === 'paused' ? 'bg-amber-50 text-amber-700' :
-                        'bg-blue-50 text-blue-700'
-                      }`}>
-                        {plc.status === 'active' ? 'Выпуск идет' : plc.status === 'paused' ? 'Приостановлен' : 'Успешно закрыт'}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[8px] font-mono font-bold uppercase px-2 py-0.5 rounded ${status.cls}`}>
+                          {status.label}
+                        </span>
+                        <ChevronRight size={13} className="text-gray-300" />
+                      </div>
                     </div>
 
-                    {/* Progress Bar */}
-                    <div className="mt-2.5">
-                      <div className="flex justify-between items-center text-[9px] font-mono text-gray-500 mb-1">
-                        <span>Прогресс сбора капитала:</span>
-                        <span className="font-bold text-gray-800">
-                          {formatVal(plc.raisedAmount, currency)} / {formatVal(plc.targetAmount, currency)} ({pct.toFixed(0)}%)
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-100 h-1 rounded overflow-hidden">
-                        <div 
+                    <div className="mt-2.5 flex items-center gap-3">
+                      <div className="flex-1 bg-gray-100 h-1 rounded overflow-hidden">
+                        <div
                           className={`h-full transition-all duration-500 ${
                             plc.status === 'paused' ? 'bg-amber-500' : 'bg-[#A38D6D]'
                           }`}
                           style={{ width: `${pct}%` }}
                         />
                       </div>
+                      <span className="text-[9px] font-mono font-bold text-gray-700 shrink-0">
+                        {pct.toFixed(0)}%
+                      </span>
                     </div>
-                  </div>
+                  </button>
                 );
               })}
+              {placements.length === 0 && (
+                <p className="text-xs text-gray-400 italic py-8 text-center">Размещений пока нет.</p>
+              )}
             </div>
           </div>
 
         </div>
 
       </div>
+
+      {/* Карточка объекта, раскрытая из сводки размещений */}
+      <AnimatePresence>
+        {openProperty && (
+          <PropertyDetailPanel
+            property={openProperty}
+            buildingName={openProperty.buildingId ? buildingNameById[openProperty.buildingId] || '' : ''}
+            onClose={() => setOpenPropertyId(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Realtor leaderboard */}
       <div className="bg-white border border-gray-100 rounded-sm p-6 shadow-xs text-left">
