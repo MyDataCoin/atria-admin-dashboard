@@ -81,7 +81,9 @@ async function downloadResponse(response, fallbackName) {
  * contract, so a batch spanning two issues has no single contract to be executed against.
  */
 export default function Whitelist({ properties = [], onAddLog }) {
-  const [propertyId, setPropertyId] = useState(properties[0]?.id ?? '');
+  // Пустая строка = все выпуски. Именно так экран и открывается: заявка приходит по любому
+  // объекту, и заставлять оператора угадывать, по какому именно, — способ её не увидеть.
+  const [propertyId, setPropertyId] = useState('');
   const [status, setStatus] = useState('Ready');
 
   const [entries, setEntries] = useState([]);
@@ -102,19 +104,14 @@ export default function Whitelist({ properties = [], onAddLog }) {
   const [cancellingId, setCancellingId] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
 
-  useEffect(() => {
-    if (!propertyId && properties.length > 0) setPropertyId(properties[0].id);
-  }, [properties, propertyId]);
-
   const load = useCallback(async (id, statusFilter) => {
-    if (!id) return;
     setLoading(true);
     setLoadError(null);
     setSelected([]);
     try {
       const [queue, lists] = await Promise.all([
-        api.whitelist.entries(id, statusFilter || undefined),
-        api.whitelist.mintLists(id),
+        api.whitelist.entries(id || undefined, statusFilter || undefined),
+        api.whitelist.mintLists(id || undefined),
       ]);
       setEntries(queue ?? []);
       setMintLists(lists ?? []);
@@ -245,7 +242,7 @@ export default function Whitelist({ properties = [], onAddLog }) {
           id="whitelist-property"
           className="rounded-lg border border-gray-200 px-3 py-2 text-xs focus:outline-none focus:border-[#A38D6D]"
         >
-          {properties.length === 0 && <option value="">Объектов нет</option>}
+          <option value="">Все выпуски</option>
           {properties.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
@@ -329,6 +326,7 @@ export default function Whitelist({ properties = [], onAddLog }) {
                         />
                       </th>
                       <th className="px-4 py-3 text-left">Статус</th>
+                      <th className="px-4 py-3 text-left">Выпуск</th>
                       <th className="px-4 py-3 text-left">Адрес кошелька</th>
                       <th className="px-4 py-3 text-right">Долей</th>
                       <th className="px-4 py-3 text-left">Инвестор</th>
@@ -367,6 +365,7 @@ export default function Whitelist({ properties = [], onAddLog }) {
                               </div>
                             )}
                           </td>
+                          <td className="px-4 py-3 text-gray-700">{e.propertyName ?? '—'}</td>
                           <td className="px-4 py-3 font-mono text-gray-900">
                             {e.walletAddress ?? (
                               // No address means nothing to mint to. The request is still tracked —
@@ -404,9 +403,11 @@ export default function Whitelist({ properties = [], onAddLog }) {
                 className="flex-1 min-w-[220px] px-3 py-2 rounded-lg border border-gray-200 text-xs bg-white focus:outline-none focus:border-[#A38D6D]"
               />
               <span className="text-[11px] font-mono text-gray-500">
-                {selected.length > 0
-                  ? `${selected.length} заявок · ${fmtTokens(selectedTokens)} долей`
-                  : `все готовые: ${mintable.length} заявок`}
+                {!propertyId
+                  ? 'выберите выпуск — батч минтится на его контракте'
+                  : selected.length > 0
+                    ? `${selected.length} заявок · ${fmtTokens(selectedTokens)} долей`
+                    : `все готовые: ${mintable.length} заявок`}
               </span>
               <button
                 type="button"
@@ -438,6 +439,7 @@ export default function Whitelist({ properties = [], onAddLog }) {
                   <thead className="bg-gray-50 text-[9px] uppercase tracking-wider text-gray-400 font-bold">
                     <tr>
                       <th className="px-4 py-3 text-left">Номер</th>
+                      <th className="px-4 py-3 text-left">Выпуск</th>
                       <th className="px-4 py-3 text-left">Статус</th>
                       <th className="px-4 py-3 text-right">Адресов</th>
                       <th className="px-4 py-3 text-right">Долей</th>
@@ -463,6 +465,7 @@ export default function Whitelist({ properties = [], onAddLog }) {
                               </button>
                               {l.note && <div className="text-[10px] text-gray-400 mt-0.5">{l.note}</div>}
                             </td>
+                            <td className="px-4 py-3 text-gray-700">{l.propertyName ?? '—'}</td>
                             <td className="px-4 py-3">
                               <span
                                 className={`inline-block px-2 py-1 rounded text-[9px] font-bold uppercase tracking-wider border ${meta.badge}`}

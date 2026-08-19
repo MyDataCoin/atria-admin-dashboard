@@ -167,7 +167,13 @@ export default function PropertiesList({
         const url =
           `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6` +
           `&countrycodes=kg&accept-language=ru&q=${encodeURIComponent(q)}`;
-        const res = await fetch(url, { headers: { Accept: 'application/json' } });
+        // referrerPolicy: адрес объекта уходит стороннему сервису и без этого — но Referer
+        // добавил бы к нему URL внутренней админ-панели, то есть выдал бы наружу её адрес
+        // вместе с IP оператора. Подсказки по адресу того не стоят.
+        const res = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          referrerPolicy: 'no-referrer',
+        });
         const data = await res.json();
         setAddrSuggestions(Array.isArray(data) ? data : []);
         setAddrOpen(true);

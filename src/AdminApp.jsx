@@ -461,15 +461,17 @@ export default function AdminApp({ currentUser, onLogout }) {
         {/* Dynamic content scroll workspace */}
         <main className="flex-1 p-6 lg:p-10 max-w-7xl w-full mx-auto space-y-10 overflow-y-auto">
           {renderContent()}
+        </main>
 
-          {/* Persistent global regulator reassurance footer */}
-          <footer className="pt-10 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-4 text-gray-400 text-[10px] font-mono text-left">
+        {/* Persistent global regulator reassurance footer, pinned to the bottom of the viewport */}
+        <footer className="mt-auto border-t border-gray-100 px-6 lg:px-10 py-5 bg-[#FDFDFB]">
+          <div className="max-w-7xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-gray-400 text-[10px] font-mono text-left">
             <div className="flex items-center gap-2">
               <Shield size={14} className="text-[#A38D6D]" />
               <span>Депозитарный реестр RWA активов и обеспечений • ATRIA v4.5</span>
             </div>
-          </footer>
-        </main>
+          </div>
+        </footer>
 
       </div>
     </div>
