@@ -31,19 +31,119 @@ const API_PREFIX = '/api/v1';
 // restores the session from the cookie.
 
 let accessToken = null;
+// UTC ms at which the access token stops being accepted. 0 = no session.
+let accessExpiresAt = 0;
+// Timer that refreshes shortly BEFORE the token dies, so ordinary calls stop discovering it by 401.
+let proactiveTimer = null;
+
+// The access token lives ~15 minutes (Jwt:AccessTokenMinutes). Renewing this far ahead of the
+// deadline keeps a request that is already in flight from arriving with a token that expired on the
+// way, and covers a clock that is a little off between browser and server.
+const EXPIRY_SKEW_MS = 60_000;
+
+// Told about a session that is definitively over (the server refused the refresh), as opposed to one
+// that merely could not be renewed right now because the network is down. The panel listens and
+// returns to the login form; without it a dead session leaves a UI that looks signed in and 401s on
+// every click.
+const sessionEndedHandlers = new Set();
+
+/** Subscribe to "the session is over, show the login form". Returns an unsubscribe function. */
+export function onSessionEnded(handler) {
+  sessionEndedHandlers.add(handler);
+  return () => sessionEndedHandlers.delete(handler);
+}
+
+function notifySessionEnded() {
+  sessionEndedHandlers.forEach((h) => {
+    try {
+      h();
+    } catch {
+      /* one broken listener must not stop the others */
+    }
+  });
+}
+
+// One rotation per browser, not per tab. The refresh token rotates on every use, so two tabs waking
+// up together used to present the same token twice; the server has a grace window for exactly that
+// race now, but sharing the result is still both faster and quieter. A tab that receives a token
+// here adopts it instead of asking for one of its own.
+const authChannel =
+  typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel('atria-admin-auth');
+
+if (authChannel) {
+  authChannel.onmessage = (event) => {
+    const msg = event.data;
+    if (!msg) return;
+    if (msg.type === 'tokens' && msg.accessToken && msg.expiresAt > accessExpiresAt) {
+      applyTokens(msg.accessToken, msg.expiresAt);
+    } else if (msg.type === 'ended') {
+      clearTokens();
+      notifySessionEnded();
+    }
+  };
+}
+
+/** Parses the API's expiry (UTC, sometimes without the trailing Z) into epoch ms. */
+function parseExpiry(expiresAtUtc) {
+  if (!expiresAtUtc) return 0;
+  const iso = /([Zz]|[+-]\d{2}:?\d{2})$/.test(expiresAtUtc) ? expiresAtUtc : `${expiresAtUtc}Z`;
+  const at = Date.parse(iso);
+  return Number.isNaN(at) ? 0 : at;
+}
+
+function applyTokens(token, expiresAt) {
+  accessToken = token;
+  accessExpiresAt = expiresAt;
+  scheduleProactiveRefresh();
+}
+
+function clearTokens() {
+  accessToken = null;
+  accessExpiresAt = 0;
+  if (proactiveTimer) clearTimeout(proactiveTimer);
+  proactiveTimer = null;
+}
+
+/**
+ * Renews the token a minute before it expires rather than waiting for a 401.
+ *
+ * Reacting to 401s works, but it means every fifteen minutes the first few calls fail, retry, and
+ * arrive late — and any call that cannot be replayed safely (a file upload, a POST the user is
+ * watching) pays for it. A tab left open overnight is the same story a hundred times over.
+ */
+function scheduleProactiveRefresh() {
+  if (proactiveTimer) clearTimeout(proactiveTimer);
+  proactiveTimer = null;
+  if (!accessToken || !accessExpiresAt) return;
+
+  // Never sooner than a few seconds: a server clock ahead of ours would otherwise spin this loop.
+  const delay = Math.max(accessExpiresAt - Date.now() - EXPIRY_SKEW_MS, 5_000);
+  proactiveTimer = setTimeout(() => {
+    refreshOnce().catch(() => {
+      /* a failure here is reported through the request path or onSessionEnded */
+    });
+  }, delay);
+}
 
 export const tokenStore = {
   get access() {
     return accessToken;
   },
-  set({ accessToken: token }) {
-    if (token) accessToken = token;
+  set({ accessToken: token, expiresAtUtc }) {
+    if (!token) return;
+    applyTokens(token, parseExpiry(expiresAtUtc) || Date.now() + 10 * 60_000);
+    authChannel?.postMessage({ type: 'tokens', accessToken, expiresAt: accessExpiresAt });
   },
-  clear() {
-    accessToken = null;
+  clear({ broadcast = true } = {}) {
+    clearTokens();
+    if (broadcast) authChannel?.postMessage({ type: 'ended' });
   },
   get isAuthenticated() {
     return !!accessToken;
+  },
+  /** Is the token gone, or close enough to expiry that it should be renewed before the next call? */
+  get needsRefresh() {
+    return !accessToken || Date.now() + EXPIRY_SKEW_MS >= accessExpiresAt;
   },
 };
 
@@ -75,23 +175,76 @@ export function decodeJwt(token) {
 
 let refreshInFlight = null;
 
-async function doRefresh() {
-  // No body: the refresh token is in the HttpOnly cookie, which `credentials: 'include'` sends.
-  const res = await fetch(`${BASE_URL}${API_PREFIX}/auth/refresh`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: '{}',
-  });
+/**
+ * The session is over: the server refused the refresh token itself.
+ *
+ * Kept apart from every other reason a refresh can fail, because only this one justifies throwing
+ * someone back to the login form. A refresh that failed because the Wi-Fi dropped or the API
+ * restarted says nothing about the session, and treating the two alike is what made a moment of bad
+ * network cost a full re-login.
+ */
+export class SessionExpiredError extends Error {
+  constructor() {
+    super('Сессия истекла — войдите снова.');
+    this.name = 'SessionExpiredError';
+  }
+}
 
-  if (!res.ok) {
-    tokenStore.clear();
-    throw new ApiError(res.status, await safeProblem(res));
+/** A refresh that could not be completed right now. The session is untouched; the caller may retry. */
+export class RefreshUnavailableError extends Error {
+  constructor(cause) {
+    super('Не удалось обновить сессию — проблема со связью.');
+    this.name = 'RefreshUnavailableError';
+    this.cause = cause;
+  }
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Transient failures are retried a couple of times before the caller hears about them: a refresh
+// lands during a deploy or a tunnel hiccup often enough that one immediate attempt is not a fair
+// test of whether the session is alive.
+const REFRESH_RETRY_DELAYS_MS = [400, 1200];
+
+async function doRefresh() {
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= REFRESH_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (attempt > 0) await sleep(REFRESH_RETRY_DELAYS_MS[attempt - 1]);
+
+    let res;
+    try {
+      // No body: the refresh token is in the HttpOnly cookie, which `credentials: 'include'` sends.
+      res = await fetch(`${BASE_URL}${API_PREFIX}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: '{}',
+      });
+    } catch (networkErr) {
+      lastError = networkErr;
+      continue;
+    }
+
+    // The server looked at the cookie and said no. That is the session, not the connection.
+    if (res.status === 401 || res.status === 403) {
+      tokenStore.clear();
+      notifySessionEnded();
+      throw new SessionExpiredError();
+    }
+
+    if (!res.ok) {
+      // 5xx, a gateway page, anything else: the session may well be fine. Keep it and try again.
+      lastError = new ApiError(res.status, await safeProblem(res));
+      continue;
+    }
+
+    const tokens = await res.json();
+    tokenStore.set(tokens);
+    return tokens.accessToken;
   }
 
-  const tokens = await res.json();
-  tokenStore.set(tokens);
-  return tokens.accessToken;
+  throw new RefreshUnavailableError(lastError);
 }
 
 /**
@@ -100,11 +253,9 @@ async function doRefresh() {
  * The previous version cleared the in-flight promise in a `finally` that ran for EVERY awaiting
  * caller, not just the one that started it. Two requests 401-ing at once therefore raced: the second
  * could find the slot already cleared and start a second refresh with a token the first had just
- * rotated away. The server treats a replayed token as a leak and revokes the whole session, so a
- * page that fired several requests at once could log the user out and file a false compromise
- * signal on the way. Only the initiator clears the slot here.
+ * rotated away. Only the initiator clears the slot here.
  */
-function refreshOnce() {
+export function refreshSession() {
   if (!refreshInFlight) {
     refreshInFlight = doRefresh().finally(() => {
       refreshInFlight = null;
@@ -112,6 +263,25 @@ function refreshOnce() {
   }
 
   return refreshInFlight;
+}
+
+// Internal alias kept for the call sites below that read better as "refresh once".
+const refreshOnce = refreshSession;
+
+// Coming back to a tab that sat in the background is the other moment a session looks broken: timers
+// in inactive tabs are throttled, so the proactive refresh above may have fired late or not at all.
+// Renewing on the way back in means the first click after lunch works like any other.
+if (typeof document !== 'undefined') {
+  const renewIfStale = () => {
+    if (tokenStore.isAuthenticated && tokenStore.needsRefresh) {
+      refreshOnce().catch(() => {});
+    }
+  };
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') renewIfStale();
+  });
+  window.addEventListener('online', renewIfStale);
 }
 
 async function safeProblem(res) {
@@ -146,6 +316,18 @@ export async function request(path, opts = {}) {
     if (s) url += `?${s}`;
   }
 
+  // Renew BEFORE sending when the token is at (or past) its expiry, so the call goes out with a
+  // token the server will still accept instead of discovering the problem as a 401 and replaying.
+  if (auth && !_retried && tokenStore.isAuthenticated && tokenStore.needsRefresh) {
+    try {
+      await refreshOnce();
+    } catch (err) {
+      // A dead session is worth failing fast on; a network blip is not — let the request go and be
+      // judged on its own answer.
+      if (err instanceof SessionExpiredError) throw new ApiError(401, { title: err.message });
+    }
+  }
+
   const headers = {};
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
   if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
@@ -167,7 +349,9 @@ export async function request(path, opts = {}) {
     try {
       await refreshOnce();
     } catch {
-      // The session is genuinely over; surface the original 401 rather than the refresh failure.
+      // Either the session is over (listeners have already been told) or the refresh could not be
+      // made right now. Both surface as the original 401 — but only the first one cleared the token,
+      // so a network blip leaves the session in place and the next attempt can still succeed.
       throw new ApiError(401, await safeProblem(res));
     }
 

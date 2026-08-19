@@ -82,6 +82,11 @@ function normalize(p) {
     floorNumber: p.floorNumber ?? null,
     roomCount: p.roomCount ?? null,
     totalAreaSqM: p.totalAreaSqM ?? null,
+    // Разбивка по комнатам: в брошюре это главный аргумент для покупателя квартиры.
+    rooms: Array.isArray(p.rooms)
+      ? p.rooms.map((r) => ({ id: r.id, name: r.name, areaSqM: r.areaSqM }))
+      : [],
+    roomsAreaSqM: p.roomsAreaSqM ?? 0,
 
     // price в UI = полная стоимость объекта (цена токена × число токенов),
     // а НЕ цена одного токена — иначе цифра вводит в заблуждение.

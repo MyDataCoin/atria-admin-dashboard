@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api, { decodeJwt, tokenStore } from './api';
+import api, { decodeJwt, tokenStore, onSessionEnded } from './api';
 import AdminApp from './AdminApp';
 import RealtorApp from './RealtorApp';
 import SuperAdminApp from './SuperAdminApp';
@@ -109,6 +109,19 @@ export default function App() {
       cancelled = true;
     };
   }, [restoringSession]);
+
+  // The client tells us when a session is definitively over — the server refused the refresh token,
+  // as opposed to a refresh that merely could not be made right now. Only that is worth returning
+  // someone to the login form for; a network blip leaves the session alone and the panel keeps
+  // working the moment the connection is back.
+  useEffect(
+    () =>
+      onSessionEnded(() => {
+        setCurrentUser(null);
+        setRole(null);
+      }),
+    [],
+  );
 
   // Authorization form state
   const [loginUser, setLoginUser] = useState('');

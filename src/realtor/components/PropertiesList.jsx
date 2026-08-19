@@ -6,7 +6,7 @@ import { toJpeg } from 'html-to-image';
 import { PDFDocument } from 'pdf-lib';
 import { safeUrl } from '../../utils';
 import api from '../../api';
-import { mapBuildingFromApi } from '../../api/mappers';
+import { mapBuildingFromApi, UNIT_TYPE_LABELS } from '../../api/mappers';
 import {
   Building,
   Search, 
@@ -37,6 +37,14 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+// Абсолютный адрес медиа → относительный /media/...: в dev его проксирует Vite, в проде фронт
+// живёт на том же origin. Тот же приём, что и в realtor/api/properties.js для фото объектов.
+function toMediaUrl(url) {
+  if (!url) return null;
+  const i = url.indexOf('/media/');
+  return i >= 0 ? url.slice(i) : url;
+}
+
 export default function PropertiesList({
   properties = [],
   loading = false,
@@ -61,7 +69,17 @@ export default function PropertiesList({
     api.buildings
       .list()
       .then((list) => {
-        if (!cancelled) setBuildings(Array.isArray(list) ? list.map(mapBuildingFromApi) : []);
+        if (cancelled) return;
+        const mapped = Array.isArray(list) ? list.map(mapBuildingFromApi) : [];
+        // Медиа отдаётся без CORS-заголовков: абсолютный URL с домена API браузер не даст
+        // отрисовать в canvas, то есть фото здания просто выпало бы из PDF-брошюры.
+        setBuildings(
+          mapped.map((b) => ({
+            ...b,
+            image: toMediaUrl(b.image),
+            images: (b.images || []).map(toMediaUrl).filter(Boolean),
+          })),
+        );
       })
       // Без зданий каталог просто покажет помещения одним списком — это не повод рушить экран.
       .catch(() => {
@@ -287,6 +305,10 @@ export default function PropertiesList({
 
     return { groups, standalone };
   }, [filteredProperties, buildings, buildingsById]);
+
+  // Здание помещения, о котором печатается брошюра: сначала идёт сам объект, потом дом,
+  // в котором он находится — покупателю нужно и то и другое, но в этом порядке.
+  const brochureBuilding = brochureProp?.buildingId ? buildingsById[brochureProp.buildingId] : null;
 
   const toggleBuilding = (id) =>
     setCollapsedBuildings((prev) => {
@@ -1187,7 +1209,13 @@ export default function PropertiesList({
                         {brochureProp.name}
                       </h1>
                       <p className="text-xs text-gray-500 font-medium">
-                        {brochureProp.address || 'Не указан'}, {brochureProp.city}, {brochureProp.country || 'Швейцария'}
+                        {/* Город часто уже входит в адрес — повторять его (и дописывать страну,
+                            которой у объекта нет) значит печатать в брошюре неправду. */}
+                        {[brochureProp.address, brochureProp.city, brochureProp.country]
+                          .filter(Boolean)
+                          .filter((part, idx, all) => all.indexOf(part) === idx)
+                          .filter((part, _, all) => !(part === brochureProp.city && all[0]?.includes(part)))
+                          .join(', ') || 'Адрес не указан'}
                       </p>
                     </div>
 
@@ -1203,14 +1231,38 @@ export default function PropertiesList({
                           <span className="text-[8px] uppercase font-bold text-gray-400 block">Общая площадь</span>
                           <span className="font-bold text-stone-800">{brochureProp.area} кв. м</span>
                         </div>
-                        <div>
-                          <span className="text-[8px] uppercase font-bold text-gray-400 block">Этажей</span>
-                          <span className="font-bold text-stone-800">{brochureProp.floorsCount || 1} эт.</span>
-                        </div>
-                        <div>
-                          <span className="text-[8px] uppercase font-bold text-gray-400 block">Год постройки</span>
-                          <span className="font-bold text-stone-800">{brochureProp.yearBuilt || 2019} г.</span>
-                        </div>
+                        {/* У помещения свои характеристики: этаж дома здесь не при чём. */}
+                        {brochureProp.buildingId ? (
+                          <>
+                            <div>
+                              <span className="text-[8px] uppercase font-bold text-gray-400 block">Этаж</span>
+                              <span className="font-bold text-stone-800">
+                                {brochureProp.floorNumber != null ? `${brochureProp.floorNumber} эт.` : '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[8px] uppercase font-bold text-gray-400 block">Комнатность</span>
+                              <span className="font-bold text-stone-800">
+                                {brochureProp.roomCount ? `${brochureProp.roomCount}-комн.` : '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[8px] uppercase font-bold text-gray-400 block">Номер помещения</span>
+                              <span className="font-bold text-stone-800">{brochureProp.unitNumber || '—'}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <span className="text-[8px] uppercase font-bold text-gray-400 block">Этажей</span>
+                              <span className="font-bold text-stone-800">{brochureProp.floorsCount || 1} эт.</span>
+                            </div>
+                            <div>
+                              <span className="text-[8px] uppercase font-bold text-gray-400 block">Год постройки</span>
+                              <span className="font-bold text-stone-800">{brochureProp.yearBuilt || 2019} г.</span>
+                            </div>
+                          </>
+                        )}
                         <div>
                           <span className="text-[8px] uppercase font-bold text-gray-400 block">Статус проверки</span>
                           <span className="font-bold text-emerald-700 uppercase">Одобрено УК</span>
@@ -1221,13 +1273,189 @@ export default function PropertiesList({
 
                 </div>
 
-                {/* Description Narrative */}
-                <div className="space-y-2 text-left">
-                  <h3 className="font-serif text-sm font-bold text-stone-900 border-b border-stone-200 pb-1 uppercase tracking-wider">Описание и характеристики объекта</h3>
-                  <p className="text-xs text-stone-600 leading-relaxed text-justify whitespace-pre-line font-serif">
-                    {brochureProp.description}
-                  </p>
+                {/* Описание печатаем, только если оно есть: пустой заголовок с пустой строкой
+                    под ним выглядел как потерянный кусок брошюры. */}
+                {brochureProp.description && (
+                  <div className="space-y-2 text-left">
+                    <h3 className="font-serif text-sm font-bold text-stone-900 border-b border-stone-200 pb-1 uppercase tracking-wider">
+                      Описание объекта
+                    </h3>
+                    <p className="text-xs text-stone-600 leading-relaxed text-justify whitespace-pre-line font-serif">
+                      {brochureProp.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Паспорт самого помещения: что именно покупают, в цифрах. */}
+                <div className="space-y-3 text-left">
+                  <h3 className="font-serif text-sm font-bold text-stone-900 border-b border-stone-200 pb-1 uppercase tracking-wider">
+                    Характеристики объекта
+                  </h3>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px] font-mono">
+                    {[
+                      brochureProp.buildingId && {
+                        label: 'Тип помещения',
+                        value: UNIT_TYPE_LABELS[brochureProp.unitType] || brochureProp.type || '—',
+                      },
+                      brochureProp.buildingId && {
+                        label: 'Номер / этаж',
+                        value: `${brochureProp.unitNumber || '—'}${
+                          brochureProp.floorNumber != null ? ` / ${brochureProp.floorNumber}` : ''
+                        }`,
+                      },
+                      brochureProp.buildingId && {
+                        label: 'Комнатность',
+                        value: brochureProp.roomCount ? `${brochureProp.roomCount}-комн.` : '—',
+                      },
+                      {
+                        label: 'Общая площадь',
+                        value: brochureProp.totalAreaSqM
+                          ? `${Number(brochureProp.totalAreaSqM).toFixed(2)} кв. м`
+                          : `${brochureProp.area} кв. м`,
+                      },
+                      { label: 'Цена доли', value: formatMoney(brochureProp.tokenPrice, brochureProp.currency) },
+                      {
+                        label: 'Всего долей',
+                        value: brochureProp.totalTokens != null
+                          ? Number(brochureProp.totalTokens).toLocaleString('ru-RU')
+                          : '—',
+                      },
+                      {
+                        label: 'Свободно долей',
+                        value: brochureProp.availableTokens != null
+                          ? Number(brochureProp.availableTokens).toLocaleString('ru-RU')
+                          : '—',
+                      },
+                      { label: 'Валюта выпуска', value: brochureProp.currency || '—' },
+                    ]
+                      .filter(Boolean)
+                      .map((item) => (
+                        <div key={item.label} className="bg-stone-50 border border-stone-150 p-2.5 rounded-sm">
+                          <span className="text-[8px] uppercase font-bold text-gray-400 block">{item.label}</span>
+                          <span className="font-bold text-stone-800">{item.value}</span>
+                        </div>
+                      ))}
+                  </div>
+
+                  {/* Разбивка по комнатам — то, ради чего покупатель квартиры и открывает брошюру. */}
+                  {brochureProp.rooms && brochureProp.rooms.length > 0 && (
+                    <div className="border border-stone-200 rounded-sm overflow-hidden">
+                      <table className="w-full text-[11px] font-mono">
+                        <thead>
+                          <tr className="bg-stone-50 text-[8px] uppercase tracking-wider text-gray-400 font-bold">
+                            <th className="text-left px-3 py-2">Помещение</th>
+                            <th className="text-right px-3 py-2">Площадь</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {brochureProp.rooms.map((room, idx) => (
+                            <tr key={room.id || idx} className="border-t border-stone-150">
+                              <td className="px-3 py-2 text-stone-700">{room.name}</td>
+                              <td className="px-3 py-2 text-right text-stone-900 font-bold">
+                                {Number(room.areaSqM ?? 0).toFixed(2)} кв. м
+                              </td>
+                            </tr>
+                          ))}
+                          <tr className="border-t border-stone-200 bg-stone-50">
+                            <td className="px-3 py-2 text-[8px] uppercase font-bold text-gray-400">Итого</td>
+                            <td className="px-3 py-2 text-right text-stone-900 font-bold">
+                              {Number(
+                                brochureProp.roomsAreaSqM
+                                  || brochureProp.rooms.reduce((sum, r) => sum + Number(r.areaSqM || 0), 0),
+                              ).toFixed(2)}{' '}
+                              кв. м
+                              {brochureProp.totalAreaSqM
+                                ? ` из ${Number(brochureProp.totalAreaSqM).toFixed(2)} кв. м`
+                                : ''}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
+
+                {/* Здание, в котором находится помещение. Идёт ПОСЛЕ самого объекта: покупает
+                    человек конкретную квартиру, а дом — это уже контекст к ней. */}
+                {brochureBuilding && (
+                  <div className="space-y-3 text-left">
+                    <h3 className="font-serif text-sm font-bold text-stone-900 border-b border-stone-200 pb-1 uppercase tracking-wider">
+                      Здание объекта
+                    </h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+                      {brochureBuilding.image && (
+                        <div className="md:col-span-5">
+                          <div className="border border-stone-200 rounded-sm overflow-hidden bg-stone-100 aspect-4/3">
+                            <img
+                              src={brochureBuilding.image}
+                              alt={brochureBuilding.name}
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      <div className={brochureBuilding.image ? 'md:col-span-7 space-y-3' : 'md:col-span-12 space-y-3'}>
+                        <div>
+                          <h4 className="font-serif text-lg font-bold text-stone-900 leading-snug">
+                            {brochureBuilding.name}
+                          </h4>
+                          <p className="text-xs text-gray-500 font-medium">
+                            {[brochureBuilding.address, brochureBuilding.city].filter(Boolean).join(', ')
+                              || 'Адрес не указан'}
+                          </p>
+                        </div>
+
+                        <div className="bg-stone-50 border border-stone-150 p-3 rounded-sm grid grid-cols-2 gap-3 text-[10px] font-mono">
+                          <div>
+                            <span className="text-[8px] uppercase font-bold text-gray-400 block">Тип здания</span>
+                            <span className="font-bold text-stone-800">{brochureBuilding.type || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[8px] uppercase font-bold text-gray-400 block">Этажей</span>
+                            <span className="font-bold text-stone-800">
+                              {brochureBuilding.floors ? `${brochureBuilding.floors} эт.` : '—'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[8px] uppercase font-bold text-gray-400 block">Год постройки</span>
+                            <span className="font-bold text-stone-800">
+                              {brochureBuilding.completionYear ? `${brochureBuilding.completionYear} г.` : '—'}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[8px] uppercase font-bold text-gray-400 block">Застройщик</span>
+                            <span className="font-bold text-stone-800">{brochureBuilding.developer || '—'}</span>
+                          </div>
+                        </div>
+
+                        {brochureBuilding.description && (
+                          <p className="text-xs text-stone-600 leading-relaxed text-justify whitespace-pre-line font-serif">
+                            {brochureBuilding.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {brochureBuilding.images && brochureBuilding.images.length > 1 && (
+                      <div className="grid grid-cols-3 gap-2.5">
+                        {brochureBuilding.images.slice(1, 4).map((img, idx) => (
+                          <div key={idx} className="aspect-4/3 border border-stone-200 rounded-sm overflow-hidden bg-stone-100">
+                            <img
+                              src={img}
+                              alt={`${brochureBuilding.name} — фото ${idx + 2}`}
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Документы объекта. Сами PDF-файлы дополнительно подклеиваются
                     страницами в конец скачиваемого PDF (см. handleDownloadPdf). */}

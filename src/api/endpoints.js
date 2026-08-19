@@ -1,7 +1,7 @@
 // Typed wrappers around the Atria API (see swagger). One function per operation,
 // grouped by tag. All return parsed JSON (or null for 204). Errors throw ApiError.
 
-import { request, tokenStore } from './client';
+import { request, tokenStore, refreshSession } from './client';
 
 // ---- Auth (phone-only, Kyrgyzstan +996) -----------------------------------
 
@@ -48,11 +48,11 @@ export const auth = {
 
   // Rotate the session. No argument: the refresh token is in an HttpOnly cookie the browser sends
   // on its own, so this code neither holds it nor could read it if it wanted to.
-  refresh: async () => {
-    const tokens = await request('/auth/refresh', { method: 'POST', body: {}, auth: false });
-    tokenStore.set(tokens);
-    return tokens;
-  },
+  // Goes through the client's coalesced refresh rather than issuing its own request: the refresh
+  // token rotates on every use, so two refreshes started independently present the same token twice.
+  // That path also retries a refresh that failed on the network instead of reading it as a dead
+  // session.
+  refresh: () => refreshSession(),
 
   /**
    * Restores a session after a page reload.
@@ -64,7 +64,7 @@ export const auth = {
    */
   restoreSession: async () => {
     try {
-      await auth.refresh();
+      await refreshSession();
       return true;
     } catch {
       return false;
