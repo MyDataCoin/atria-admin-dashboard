@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import jsPDF from 'jspdf';
 // html2canvas не умеет парсить современные CSS-цвета (oklch / color-mix), которые
 // генерит Tailwind v4, и падает. html-to-image рендерит через SVG и их понимает.
 import { toJpeg } from 'html-to-image';
 import { PDFDocument } from 'pdf-lib';
 import { safeUrl } from '../../utils';
+import api from '../../api';
+import { mapBuildingFromApi } from '../../api/mappers';
 import {
   Building,
   Search, 
@@ -26,6 +28,7 @@ import {
   Maximize2,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Send,
   FileText,
   Award,
@@ -49,6 +52,25 @@ export default function PropertiesList({
   const [activeImgIndex, setActiveImgIndex] = useState(0);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  // Здания (ЖК): GET /properties отдаёт только buildingId, названия и адреса живут отдельно.
+  const [buildings, setBuildings] = useState([]);
+  const [collapsedBuildings, setCollapsedBuildings] = useState(() => new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    api.buildings
+      .list()
+      .then((list) => {
+        if (!cancelled) setBuildings(Array.isArray(list) ? list.map(mapBuildingFromApi) : []);
+      })
+      // Без зданий каталог просто покажет помещения одним списком — это не повод рушить экран.
+      .catch(() => {
+        if (!cancelled) setBuildings([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   
   // Brochure states
   const [showBrochureModal, setShowBrochureModal] = useState(false);
@@ -237,6 +259,42 @@ export default function PropertiesList({
   const filteredProperties = properties.filter(prop => {
     return prop.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
+
+  // Каталог показываем так же, как он устроен: доли выпускаются на помещение, но помещение
+  // всегда чьё-то — здание сверху, его квартиры под ним. Отдельные выпуски идут своей группой.
+  const buildingsById = useMemo(
+    () => Object.fromEntries(buildings.map((b) => [b.id, b])),
+    [buildings],
+  );
+
+  const groupedView = useMemo(() => {
+    const unitsByBuilding = new Map();
+    const standalone = [];
+
+    filteredProperties.forEach((p) => {
+      if (p.buildingId && buildingsById[p.buildingId]) {
+        if (!unitsByBuilding.has(p.buildingId)) unitsByBuilding.set(p.buildingId, []);
+        unitsByBuilding.get(p.buildingId).push(p);
+      } else {
+        standalone.push(p);
+      }
+    });
+
+    // Здания без единого помещения в выдаче не показываем: риелтору нечего с ними делать.
+    const groups = buildings
+      .map((b) => ({ building: b, units: unitsByBuilding.get(b.id) || [] }))
+      .filter((g) => g.units.length > 0);
+
+    return { groups, standalone };
+  }, [filteredProperties, buildings, buildingsById]);
+
+  const toggleBuilding = (id) =>
+    setCollapsedBuildings((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   // Handle open create form
   const handleOpenCreate = () => {
@@ -565,6 +623,148 @@ export default function PropertiesList({
     return currency === 'KGS' ? formatted.replace('KGS', 'сом') : formatted;
   };
 
+  // Карточка одного помещения. Вынесена из разметки, потому что рисуется теперь в двух
+  // местах: внутри здания и в списке отдельных выпусков.
+  const renderPropertyCard = (prop) => {
+      const mainImg = prop.images && prop.images.length > 0 
+        ? prop.images[0] 
+        : 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800';
+      
+      const isSelected = selectedPropId === prop.id;
+
+      // Token dynamics: real totals from the API when present, otherwise
+      // fall back to the old price-derived estimate (mock data).
+      const totalTokens = prop.totalTokens ?? Math.floor(prop.price / 100);
+      const apiSold =
+        prop.totalTokens != null && prop.availableTokens != null
+          ? prop.totalTokens - prop.availableTokens
+          : null;
+
+      let baseSold = apiSold;
+      if (baseSold == null) {
+        baseSold = 0;
+        if (prop.status === 'published' || prop.status === 'approved' || prop.status === 'review') {
+          const charSum = prop.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+          const basePercent = 40 + (charSum % 45); // 40% to 85%
+          baseSold = Math.floor((totalTokens * basePercent) / 100);
+        }
+      }
+      const dealSold = (deals || []).filter(d => d.propertyId === prop.id && d.status === 'success').reduce((sum, d) => sum + (d.tokensBought || 0), 0);
+      const soldTokens = Math.min(baseSold + dealSold, totalTokens);
+      const availableTokens = totalTokens - soldTokens;
+      const soldPercent = totalTokens > 0 ? (soldTokens / totalTokens) * 100 : 0;
+
+      return (
+        <div
+          key={prop.id}
+          onClick={() => {
+            setSelectedPropId(prop.id);
+            setActiveImgIndex(0);
+          }}
+          className={`bg-white border rounded-sm overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group text-left
+            ${isSelected ? 'border-[#A38D6D] ring-1 ring-[#A38D6D]/30' : 'border-gray-100 hover:border-[#A38D6D]'}
+          `}
+        >
+          <div className="relative h-44 bg-gray-100 overflow-hidden shrink-0">
+            <img 
+              src={mainImg} 
+              alt={prop.name}
+              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
+              referrerPolicy="no-referrer"
+            />
+            
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none" />
+            
+            <div className="absolute bottom-3 left-4 text-white">
+              <span className="text-[8px] uppercase tracking-widest font-mono text-[#A38D6D] font-bold bg-[#111111]/80 px-1.5 py-0.5 rounded">
+                {prop.type}
+              </span>
+              <h3 className="font-serif text-sm font-bold mt-1.5 line-clamp-1">
+                {prop.name}
+              </h3>
+            </div>
+          </div>
+
+          <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 text-gray-400 text-[10px]">
+                <MapPin size={11} className="text-[#A38D6D]" />
+                <span className="truncate">{prop.city}{prop.country ? `, ${prop.country}` : ''}</span>
+              </div>
+              <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
+                {prop.description}
+              </p>
+            </div>
+
+            <div className="border-t border-gray-100 pt-3 space-y-3">
+              {/* Financial info */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Стоимость</span>
+                  <span className="font-mono text-xs font-bold text-[#1a1a1a]">
+                    {formatMoney(prop.price, prop.currency)}
+                  </span>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Площадь</span>
+                  <span className="font-mono text-xs font-semibold text-gray-800">
+                    {prop.area} кв.м
+                  </span>
+                </div>
+              </div>
+
+              {/* Tokenization dynamic metrics */}
+              <div className="grid grid-cols-2 gap-2 text-[10px] border-t border-dashed border-gray-100 pt-2.5">
+                <div>
+                  <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Цена токена</span>
+                  <span className="font-mono text-[11px] font-bold text-[#A38D6D]">
+                    {formatMoney(prop.tokenPrice, prop.currency)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Уже выкуплено</span>
+                  <span className="font-mono text-[10px] font-bold text-gray-700">
+                    {soldTokens.toLocaleString('ru-RU')} / {totalTokens.toLocaleString('ru-RU')} RWA
+                  </span>
+                </div>
+              </div>
+
+              {/* Progress bar */}
+              <div className="space-y-1">
+                <div className="flex justify-between items-center text-[8px] uppercase font-bold text-gray-400 font-mono">
+                  <span>Продано долей</span>
+                  <span className="text-[#A38D6D] font-bold">{soldPercent.toFixed(2)}%</span>
+                </div>
+                <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden border border-gray-150/50">
+                  <div 
+                    className="bg-[#A38D6D] h-full rounded-full transition-all duration-300" 
+                    style={{ width: `${Math.min(soldPercent, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick operational triggers & Brochure generation */}
+          <div className="bg-gray-50 border-t border-gray-100 px-4 py-2.5 flex justify-between items-center gap-2">
+            <span className="text-[8px] font-mono text-gray-400 font-bold uppercase tracking-wider">База синхронизирована</span>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleGenerateBrochure(prop);
+              }}
+              className="text-[9px] uppercase tracking-wider font-bold text-gray-800 hover:text-[#A38D6D] cursor-pointer flex items-center gap-1 font-mono bg-white border border-gray-200 hover:border-[#A38D6D] py-1 px-2.5 rounded-sm shadow-3xs transition-all font-semibold"
+            >
+              <FileText size={11} className="text-[#A38D6D]" />
+              <span>Брошюра</span>
+            </button>
+          </div>
+        </div>
+      );
+  };
+
   return (
     <div className="space-y-8 font-sans">
       
@@ -606,158 +806,79 @@ export default function PropertiesList({
       {/* Properties List / Details Flex Container */}
       <div className="relative">
 
-        {/* Full-width Property Grid (Grid is now beautifully balanced) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-          {loading ? (
-            <div className="col-span-full bg-white border border-gray-100 rounded-sm py-16 px-4 text-center text-gray-400 text-xs">
-              Загрузка каталога объектов из ATRIA API...
-            </div>
-          ) : filteredProperties.length === 0 ? (
-            <div className="col-span-full bg-white border border-gray-100 rounded-sm py-16 px-4 text-center text-gray-400 text-xs">
-              Объекты не найдены по заданным критериям фильтрации.
-            </div>
-          ) : (
-            filteredProperties.map((prop) => {
-              const mainImg = prop.images && prop.images.length > 0 
-                ? prop.images[0] 
-                : 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800';
-              
-              const isSelected = selectedPropId === prop.id;
-
-              // Token dynamics: real totals from the API when present, otherwise
-              // fall back to the old price-derived estimate (mock data).
-              const totalTokens = prop.totalTokens ?? Math.floor(prop.price / 100);
-              const apiSold =
-                prop.totalTokens != null && prop.availableTokens != null
-                  ? prop.totalTokens - prop.availableTokens
-                  : null;
-
-              let baseSold = apiSold;
-              if (baseSold == null) {
-                baseSold = 0;
-                if (prop.status === 'published' || prop.status === 'approved' || prop.status === 'review') {
-                  const charSum = prop.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                  const basePercent = 40 + (charSum % 45); // 40% to 85%
-                  baseSold = Math.floor((totalTokens * basePercent) / 100);
-                }
-              }
-              const dealSold = (deals || []).filter(d => d.propertyId === prop.id && d.status === 'success').reduce((sum, d) => sum + (d.tokensBought || 0), 0);
-              const soldTokens = Math.min(baseSold + dealSold, totalTokens);
-              const availableTokens = totalTokens - soldTokens;
-              const soldPercent = totalTokens > 0 ? (soldTokens / totalTokens) * 100 : 0;
-
+        {/* Каталог: здание, под ним его помещения. Отдельные выпуски идут своей группой. */}
+        {loading ? (
+          <div className="bg-white border border-gray-100 rounded-sm py-16 px-4 text-center text-gray-400 text-xs">
+            Загрузка каталога объектов из ATRIA API...
+          </div>
+        ) : filteredProperties.length === 0 ? (
+          <div className="bg-white border border-gray-100 rounded-sm py-16 px-4 text-center text-gray-400 text-xs">
+            Объекты не найдены по заданным критериям фильтрации.
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {groupedView.groups.map(({ building, units }) => {
+              const collapsed = collapsedBuildings.has(building.id);
               return (
-                <div
-                  key={prop.id}
-                  onClick={() => {
-                    setSelectedPropId(prop.id);
-                    setActiveImgIndex(0);
-                  }}
-                  className={`bg-white border rounded-sm overflow-hidden shadow-xs hover:shadow-md transition-all cursor-pointer flex flex-col justify-between group text-left
-                    ${isSelected ? 'border-[#A38D6D] ring-1 ring-[#A38D6D]/30' : 'border-gray-100 hover:border-[#A38D6D]'}
-                  `}
-                >
-                  <div className="relative h-44 bg-gray-100 overflow-hidden shrink-0">
-                    <img 
-                      src={mainImg} 
-                      alt={prop.name}
-                      className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-500"
-                      referrerPolicy="no-referrer"
-                    />
-                    
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent pointer-events-none" />
-                    
-                    <div className="absolute bottom-3 left-4 text-white">
-                      <span className="text-[8px] uppercase tracking-widest font-mono text-[#A38D6D] font-bold bg-[#111111]/80 px-1.5 py-0.5 rounded">
-                        {prop.type}
-                      </span>
-                      <h3 className="font-serif text-sm font-bold mt-1.5 line-clamp-1">
-                        {prop.name}
-                      </h3>
-                    </div>
-                  </div>
-
-                  <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-1.5 text-gray-400 text-[10px]">
-                        <MapPin size={11} className="text-[#A38D6D]" />
-                        <span className="truncate">{prop.city}{prop.country ? `, ${prop.country}` : ''}</span>
-                      </div>
-                      <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
-                        {prop.description}
-                      </p>
-                    </div>
-
-                    <div className="border-t border-gray-100 pt-3 space-y-3">
-                      {/* Financial info */}
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Стоимость</span>
-                          <span className="font-mono text-xs font-bold text-[#1a1a1a]">
-                            {formatMoney(prop.price, prop.currency)}
-                          </span>
-                        </div>
-
-                        <div className="text-right">
-                          <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Площадь</span>
-                          <span className="font-mono text-xs font-semibold text-gray-800">
-                            {prop.area} кв.м
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Tokenization dynamic metrics */}
-                      <div className="grid grid-cols-2 gap-2 text-[10px] border-t border-dashed border-gray-100 pt-2.5">
-                        <div>
-                          <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Цена токена</span>
-                          <span className="font-mono text-[11px] font-bold text-[#A38D6D]">
-                            {formatMoney(prop.tokenPrice, prop.currency)}
-                          </span>
-                        </div>
-                        <div className="text-right">
-                          <span className="text-[8px] uppercase font-bold text-gray-400 block font-mono">Уже выкуплено</span>
-                          <span className="font-mono text-[10px] font-bold text-gray-700">
-                            {soldTokens.toLocaleString('ru-RU')} / {totalTokens.toLocaleString('ru-RU')} RWA
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Progress bar */}
-                      <div className="space-y-1">
-                        <div className="flex justify-between items-center text-[8px] uppercase font-bold text-gray-400 font-mono">
-                          <span>Продано долей</span>
-                          <span className="text-[#A38D6D] font-bold">{soldPercent.toFixed(2)}%</span>
-                        </div>
-                        <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden border border-gray-150/50">
-                          <div 
-                            className="bg-[#A38D6D] h-full rounded-full transition-all duration-300" 
-                            style={{ width: `${Math.min(soldPercent, 100)}%` }}
-                          />
-                        </div>
+                <div key={building.id} className="bg-white border border-gray-100 rounded-sm shadow-xs overflow-hidden">
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-gray-100 bg-[#FBFBFA]">
+                    <div className="flex items-center gap-3 min-w-0">
+                      {building.image && (
+                        <img
+                          src={building.image}
+                          alt={building.name}
+                          className="w-12 h-12 rounded object-cover shrink-0"
+                          referrerPolicy="no-referrer"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <h3 className="font-serif font-bold text-gray-900 text-sm truncate">{building.name}</h3>
+                        <span className="text-[9px] font-mono text-gray-400 block truncate">
+                          {[building.city, building.address, `${units.length} помещений`]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </span>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Quick operational triggers & Brochure generation */}
-                  <div className="bg-gray-50 border-t border-gray-100 px-4 py-2.5 flex justify-between items-center gap-2">
-                    <span className="text-[8px] font-mono text-gray-400 font-bold uppercase tracking-wider">База синхронизирована</span>
 
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleGenerateBrochure(prop);
-                      }}
-                      className="text-[9px] uppercase tracking-wider font-bold text-gray-800 hover:text-[#A38D6D] cursor-pointer flex items-center gap-1 font-mono bg-white border border-gray-200 hover:border-[#A38D6D] py-1 px-2.5 rounded-sm shadow-3xs transition-all font-semibold"
+                      type="button"
+                      onClick={() => toggleBuilding(building.id)}
+                      title={collapsed ? 'Показать помещения' : 'Свернуть'}
+                      className="p-1.5 text-gray-400 hover:text-[#A38D6D] border border-gray-200 rounded cursor-pointer shrink-0"
                     >
-                      <FileText size={11} className="text-[#A38D6D]" />
-                      <span>Брошюра</span>
+                      <ChevronDown
+                        size={14}
+                        className={collapsed ? '-rotate-90 transition-transform' : 'transition-transform'}
+                      />
                     </button>
                   </div>
+
+                  {!collapsed && (
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                        {units.map(renderPropertyCard)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
-            })
-          )}
-        </div>
+            })}
+
+            {groupedView.standalone.length > 0 && (
+              <div>
+                {groupedView.groups.length > 0 && (
+                  <span className="block text-[9px] uppercase font-bold tracking-widest text-gray-400 mb-3">
+                    Отдельные выпуски (вне здания)
+                  </span>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+                  {groupedView.standalone.map(renderPropertyCard)}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Slide-Over Side Panel (Drawer Sheet Overlay) */}
         <AnimatePresence>

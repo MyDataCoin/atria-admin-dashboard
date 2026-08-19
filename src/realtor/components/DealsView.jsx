@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
+import {
+  Minus, 
   Handshake, 
   Plus, 
   Clock, 
@@ -150,6 +151,15 @@ const getTimelineSteps = (deal) => {
   return steps;
 };
 
+// Потолок комиссии. Тот же предел стоит на бэкенде (DealCommission:MaxPercent = 10): сделка
+// закрывается автоматически первой покупкой по ссылке, поэтому процент — единственное, что
+// отделяет реферальную ссылку от риелтора, забравшего себе всю инвестицию.
+const MAX_COMMISSION_PERCENT = 10;
+const MIN_COMMISSION_PERCENT = 0.1;
+const COMMISSION_STEP = 0.5;
+// Частые значения: обычно риелтор ставит одно из них, и попасть в кнопку быстрее, чем набирать.
+const COMMISSION_PRESETS = [1, 3, 5, 10];
+
 export default function DealsView({
   properties = [],
   deals = [],
@@ -222,6 +232,18 @@ export default function DealsView({
   };
 
   // Create new deal handler — сервер сразу возвращает сделку с реф-ссылкой.
+  // Процент держим в допустимых границах в одном месте: и кнопки, и ручной ввод проходят через него.
+  const clampCommission = (value) => {
+    const parsed = parseFloat(String(value).replace(',', '.'));
+    if (!Number.isFinite(parsed)) return MIN_COMMISSION_PERCENT;
+    const bounded = Math.min(MAX_COMMISSION_PERCENT, Math.max(MIN_COMMISSION_PERCENT, parsed));
+    // Округление убирает 2.7999999999999998 после сложения дробей.
+    return Math.round(bounded * 10) / 10;
+  };
+
+  const stepCommission = (delta) =>
+    setCommissionPercent(String(clampCommission((parseFloat(commissionPercent) || 0) + delta)));
+
   const handleCreateDeal = async (e) => {
     e.preventDefault();
     if (!selectedPropId || createPending) return;
@@ -232,13 +254,19 @@ export default function DealsView({
     setCreatePending(true);
     setCreateError('');
     try {
-      await onCreateDeal(property.id, parseFloat(commissionPercent) || 3.0);
+      const percent = parseFloat(commissionPercent);
+      if (!Number.isFinite(percent) || percent <= 0 || percent > MAX_COMMISSION_PERCENT) {
+        setCreateError(`Комиссия должна быть от 0,1% до ${MAX_COMMISSION_PERCENT}%.`);
+        return;
+      }
+
+      await onCreateDeal(property.id, percent);
       onAddLog(`Создана реферальная сделка для объекта "${property.name}" с комиссией ${commissionPercent}%`, 'create');
       setSelectedPropId('');
       setCommissionPercent('3.0');
       setShowCreateModal(false);
     } catch (err) {
-      setCreateError(err.message || 'Не удалось создать сделку.');
+      setCreateError(err?.problem?.detail || err.message || 'Не удалось создать сделку.');
     } finally {
       setCreatePending(false);
     }
@@ -656,24 +684,70 @@ export default function DealsView({
 
                 <div className="space-y-1">
                   <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
-                    Ваш комиссионный процент (%) *
+                    Ваш комиссионный процент (%) * — максимум {MAX_COMMISSION_PERCENT}%
                   </label>
-                  <div className="relative">
-                    <input 
-                      type="number" 
-                      step="0.1" 
-                      min="0.1" 
-                      max="20" 
-                      required
-                      placeholder="Например: 3.5"
-                      value={commissionPercent} 
-                      onChange={(e) => setCommissionPercent(e.target.value)}
-                      className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-[#FBFBFA] font-mono"
-                    />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 font-mono font-bold text-gray-400">%</span>
+                  {/* Вместо крошечных стрелок системного number-инпута — две крупные кнопки шагом
+                      0,5% и пресеты: попасть пальцем в них можно, в родные стрелки — нет. */}
+                  <div className="flex items-stretch gap-2">
+                    <button
+                      type="button"
+                      onClick={() => stepCommission(-COMMISSION_STEP)}
+                      disabled={parseFloat(commissionPercent) <= MIN_COMMISSION_PERCENT}
+                      title={`Убавить на ${COMMISSION_STEP}%`}
+                      className="w-11 shrink-0 flex items-center justify-center border border-gray-200 rounded bg-white text-gray-600 hover:border-[#A38D6D] hover:text-[#A38D6D] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <Minus size={15} />
+                    </button>
+
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        required
+                        placeholder="Например: 3.5"
+                        value={commissionPercent}
+                        onChange={(e) => {
+                          // Пускаем только цифры и один разделитель — иначе в поле легко
+                          // оказывается текст, который на отправке превращается в NaN.
+                          const raw = e.target.value.replace(',', '.');
+                          if (raw === '' || /^\d{0,2}(\.\d{0,2})?$/.test(raw)) setCommissionPercent(raw);
+                        }}
+                        onBlur={() => setCommissionPercent(String(clampCommission(commissionPercent)))}
+                        className="w-full p-2.5 pr-8 border border-gray-200 rounded text-gray-900 text-center focus:outline-none focus:border-[#A38D6D] bg-[#FBFBFA] font-mono text-base"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 font-mono font-bold text-gray-400">%</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => stepCommission(COMMISSION_STEP)}
+                      disabled={parseFloat(commissionPercent) >= MAX_COMMISSION_PERCENT}
+                      title={`Прибавить ${COMMISSION_STEP}%`}
+                      className="w-11 shrink-0 flex items-center justify-center border border-gray-200 rounded bg-white text-gray-600 hover:border-[#A38D6D] hover:text-[#A38D6D] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <Plus size={15} />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {COMMISSION_PRESETS.map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setCommissionPercent(String(preset))}
+                        className={`px-2.5 py-1 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer border ${
+                          parseFloat(commissionPercent) === preset
+                            ? 'bg-[#A38D6D] border-[#A38D6D] text-white'
+                            : 'bg-white border-gray-200 text-gray-500 hover:border-[#A38D6D] hover:text-[#A38D6D]'
+                        }`}
+                      >
+                        {preset}%
+                      </button>
+                    ))}
                   </div>
                   <p className="text-[8px] text-gray-400 mt-1">
-                    Этот процент будет использоваться для автоматического расчета начислений при токенизированных покупках.
+                    Этот процент будет использоваться для автоматического расчёта начислений при
+                    токенизированных покупках. Больше {MAX_COMMISSION_PERCENT}% платформа не пропустит.
                   </p>
                 </div>
 

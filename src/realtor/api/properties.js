@@ -74,6 +74,15 @@ function normalize(p) {
     salesPaused: p.salesPaused,
     apiStatus: p.status,
 
+    // Помещение внутри здания. Без этих полей каталог считал каждый объект отдельным выпуском,
+    // и группировка по зданиям не срабатывала вообще.
+    buildingId: p.buildingId || null,
+    unitType: p.unitType && p.unitType !== 'unspecified' ? p.unitType : '',
+    unitNumber: p.unitNumber || '',
+    floorNumber: p.floorNumber ?? null,
+    roomCount: p.roomCount ?? null,
+    totalAreaSqM: p.totalAreaSqM ?? null,
+
     // price в UI = полная стоимость объекта (цена токена × число токенов),
     // а НЕ цена одного токена — иначе цифра вводит в заблуждение.
     price: totalValue,
@@ -85,7 +94,8 @@ function normalize(p) {
     type: p.propertyType || 'Коммерческая недвижимость',
     yearBuilt: p.yearBuilt ?? 2015 + hashIndex(p.id, 9),
     floorsCount: p.floors ?? 3 + hashIndex(p.id, 20),
-    area: 200 + hashIndex(p.id, 800),
+    // Площадь помещения бэкенд теперь отдаёт — заглушка нужна только объектам без неё.
+    area: p.totalAreaSqM ?? 200 + hashIndex(p.id, 800),
     // API отдаёт картинки объектами {id, url} — UI ждёт массив URL-строк.
     // Заглушка используется, только если реальных фото нет.
     images: p.images?.length ? p.images.map(toImageUrl).filter(Boolean) : [STOCK_IMAGES[hashIndex(p.id, STOCK_IMAGES.length)]],
