@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import api from '../api';
 import { mapInvestorHoldingFromApi, mapKycStatus } from '../api/mappers';
-import { ShieldCheck, Search, Mail, ShieldAlert, RefreshCw, Loader2 } from 'lucide-react';
+import { ShieldCheck, Search, Mail, ShieldAlert, ShieldQuestion, RefreshCw, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function UsersAndKyc({
@@ -198,11 +198,20 @@ export default function UsersAndKyc({
                     </td>
 
                     <td className="py-3.5 px-4 text-center">
-                      {inv.kycStatus === 'Approved' ? (
+                      {inv.kycStatus === 'Approved' && (
                         <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
                           <ShieldCheck size={11} /> KYC пройден
                         </span>
-                      ) : (
+                      )}
+                      {/* Верификацию не начинали — это не «не пройден»: отказа не было, человек
+                          просто ещё не дошёл до KYC. Оператору эти строки нужны отдельно, к ним
+                          и обращаются. */}
+                      {inv.kycStatus === 'NotStarted' && (
+                        <span className="inline-flex items-center gap-1 bg-gray-50 text-gray-500 border border-gray-200 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
+                          <ShieldQuestion size={11} /> KYC не начат
+                        </span>
+                      )}
+                      {inv.kycStatus !== 'Approved' && inv.kycStatus !== 'NotStarted' && (
                         <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 border border-amber-100 px-2 py-0.5 rounded text-[10px] font-mono font-bold">
                           <ShieldAlert size={11} /> Не пройден
                         </span>

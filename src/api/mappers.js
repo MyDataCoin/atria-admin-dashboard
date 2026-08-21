@@ -126,8 +126,11 @@ export function mapInvestorFromApi(dto) {
     email: dto.email || phone || '—',
     phone,
     walletAddress: dto.walletAddress || '',
-    // status is null for users with no KYC profile yet.
-    kycStatus: dto.status || dto.kycStatus ? mapKycStatus(dto.status || dto.kycStatus) : 'Pending',
+    // status = null означает, что KYC даже не начинали. Отдельный статус, а не 'Pending':
+    // «на проверке» — это заявка, которая ждёт решения, и оператору важно их различать.
+    kycStatus: dto.status || dto.kycStatus
+      ? mapKycStatus(dto.status || dto.kycStatus)
+      : 'NotStarted',
     // Operator actions on a verification are addressed by PROFILE id, not user id.
     kycProfileId: dto.kycProfileId || null,
     amlRisk: dto.amlRisk || 'N/A',

@@ -21,6 +21,11 @@ function roleFromToken(token) {
   // claim spelling is TBD on the backend, so accept a few forms.
   if (raw.includes('super')) return 'superadmin';
   if (raw.includes('realtor')) return 'realtor';
+  // Инвестор — НЕ персонал. Раньше сюда попадала любая аутентифицированная роль, и инвесторская
+  // сессия открывала админку: refresh-кука общая на зону .atria.kg, так что вход в кабинете
+  // инвестора отдавал сюда рабочий токен. Панель рисовалась целиком, а данные не приходили —
+  // каждый запрос отвечал 403. Такую сессию здесь не принимаем вовсе.
+  if (raw.includes('investor')) return null;
   // Anything else authenticated against this backend is treated as staff/admin.
   return p ? 'admin' : null;
 }
@@ -37,6 +42,9 @@ function userFromToken(token) {
   const p = token ? decodeJwt(token) : null;
   if (!p) return null;
   const role = roleFromToken(token);
+  // Роль, которой в этой панели нечего делать (инвестор). Без пользователя роутер ниже покажет
+  // форму входа, а не пустую админку.
+  if (!role) return null;
   if (role === 'realtor') {
     // The realtor profile is fetched later (GET /realtor/me). Until it resolves the workspace
     // shows neutral placeholders rather than someone else's name and company.

@@ -113,7 +113,12 @@ export default function AdminApp({ currentUser, onLogout }) {
     return api.admin
       .listInvestors()
       .then(async (list) => {
-        const rows = Array.isArray(list) ? list.filter((u) => u.status != null) : [];
+        // Реестр инвесторов = пользователи с ролью Investor. Раньше здесь стояло
+        // `u.status != null` — «есть KYC-профиль»: список тогда показывал ровно тех, кто
+        // верификацию уже начал, а инвестор, который зарегистрировался и до KYC не дошёл, в
+        // реестре не появлялся вообще. Это те, ради кого на экран и заходят.
+        // Роль обязательна: /users отдаёт ВСЕХ, включая админов, риелторов и аудиторов.
+        const rows = Array.isArray(list) ? list.filter((u) => u.role === 'Investor') : [];
         const mapped = rows.map(mapInvestorFromApi);
         const withHoldings = await Promise.all(
           mapped.map(async (inv) => {
