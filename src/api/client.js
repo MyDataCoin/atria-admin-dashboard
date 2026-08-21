@@ -206,13 +206,31 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // test of whether the session is alive.
 const REFRESH_RETRY_DELAYS_MS = [400, 1200];
 
+// Потолок на одну попытку обновления и на все попытки вместе. Обновление стоит в начале очереди —
+// пока оно идёт, ждут все запросы панели, и без ограничения «сервер задумался» означало замерший
+// интерфейс на неопределённое время. С потолком это обычная ошибка, которую есть кому повторить.
+const REFRESH_ATTEMPT_TIMEOUT_MS = 8_000;
+const REFRESH_TOTAL_BUDGET_MS = 20_000;
+
+/** AbortSignal, срабатывающий через ms. Свой, а не AbortSignal.timeout — тот есть не везде. */
+function timeoutSignal(ms) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
 async function doRefresh() {
   let lastError = null;
+  const deadline = Date.now() + REFRESH_TOTAL_BUDGET_MS;
 
   for (let attempt = 0; attempt <= REFRESH_RETRY_DELAYS_MS.length; attempt += 1) {
     if (attempt > 0) await sleep(REFRESH_RETRY_DELAYS_MS[attempt - 1]);
+    if (Date.now() >= deadline) break;
 
     let res;
+    const attemptTimeout = timeoutSignal(
+      Math.min(REFRESH_ATTEMPT_TIMEOUT_MS, deadline - Date.now())
+    );
     try {
       // No body: the refresh token is in the HttpOnly cookie, which `credentials: 'include'` sends.
       res = await fetch(`${BASE_URL}${API_PREFIX}/auth/refresh`, {
@@ -220,10 +238,13 @@ async function doRefresh() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: '{}',
+        signal: attemptTimeout.signal,
       });
     } catch (networkErr) {
       lastError = networkErr;
       continue;
+    } finally {
+      attemptTimeout.done();
     }
 
     // The server looked at the cookie and said no. That is the session, not the connection.
