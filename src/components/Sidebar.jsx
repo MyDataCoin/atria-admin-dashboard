@@ -1,5 +1,5 @@
 import React from 'react';
-import { 
+import {
   LayoutDashboard, 
   Building,
   Newspaper,
@@ -9,6 +9,7 @@ import {
   ListChecks,
   Wallet,
   Activity,
+  Cpu,
   LogOut,
   Award,
   X,
@@ -31,6 +32,7 @@ export default function Sidebar({
     { id: 'applications', label: 'Заявки', icon: ClipboardList },
     { id: 'whitelist', label: 'Whitelist & Минт', icon: ListChecks },
     { id: 'registry', label: 'Реестр держателей', icon: Users2 },
+    { id: 'operations', label: 'Операции в сети', icon: Cpu },
     { id: 'investors', label: 'Выплаты & Инвесторы', icon: Wallet },
     { id: 'users', label: 'Пользователи & KYC/AML', icon: Users },
     { id: 'support', label: 'Поддержка & Тикеты', icon: HelpCircle },

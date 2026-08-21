@@ -24,6 +24,7 @@ import SupportTickets from './components/SupportTickets';
 import Applications from './components/Applications';
 import HolderRegistry from './components/HolderRegistry';
 import Whitelist from './components/Whitelist';
+import BlockchainOperations from './components/BlockchainOperations';
 
 // No seed datasets: every panel starts empty and fills from the API. Demo rows that stayed on
 // screen when a request failed were indistinguishable from real ones — an operator could act on a
@@ -385,6 +386,10 @@ export default function AdminApp({ currentUser, onLogout }) {
             onAddLog={handleAddAuditLog}
           />
         );
+      case 'operations':
+        // Читается с сервера при каждом открытии: очередь живёт своей жизнью между заходами —
+        // воркер отправляет транзакции и разбирает подтверждения, пока экран закрыт.
+        return <BlockchainOperations />;
       case 'registry':
         return (
           <HolderRegistry

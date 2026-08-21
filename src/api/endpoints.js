@@ -405,6 +405,24 @@ export const holders = {
     request(`/holders/snapshots/${id}/export`, { raw: true }),
 };
 
+// ---- On-chain operations queue ---------------------------------------------
+
+// What the platform is doing on chain, and what stalled doing it.
+//
+// There is deliberately NO manual mint here. Shares appear only as a consequence of an
+// approved application — заявка → резерв → одобрение → белый список → минт — so every
+// issued share traces back to a specific investor and a specific ground. The cost is
+// that everything after approval runs without an operator touching it; this queue is
+// the window onto it, and the only place a wedged run becomes visible.
+export const blockchainOperations = {
+  // status: created | submitted | confirmed | failed. Omit for all.
+  list: (status, limit) => request('/blockchain-operations', { query: { status, limit } }),
+  // Only a failed operation can be re-queued: a submitted one may still be in flight.
+  // The idempotency key and the attempt count stay with it, so a retry cannot become a
+  // second mint and a repeatedly failing operation cannot hide behind a clean row.
+  retry: (id) => request(`/blockchain-operations/${id}/retry`, { method: 'POST' }),
+};
+
 // ---- Whitelist & mint lists -----------------------------------------------
 
 // Every purchase request on its way to being minted, and the batches handed to the
@@ -479,6 +497,7 @@ export const governance = {
 export default {
   auth,
   whitelist,
+  blockchainOperations,
   properties,
   buildings,
   investments,
