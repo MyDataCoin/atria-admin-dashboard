@@ -58,6 +58,12 @@ export function mapPropertyFromApi(p) {
     availableTokens: p.availableTokens,
     totalTokens: p.totalTokens,
 
+    // Порог входа выпуска и его цена — приходят с бэкенда, показываются в карточке.
+    minPurchaseTokens: p.minPurchaseTokens ?? 1,
+    minPurchaseAmount: p.minPurchaseAmount ?? 0,
+    // Площадь на токен: расчётный эквивалент для показа рядом с количеством, не единица учёта.
+    areaPerTokenSqM: p.areaPerTokenSqM ?? null,
+
     // Sales temporarily halted by admin — the public site must block "buy" while true.
     // Backend flag name TBD; accept a few likely spellings.
     paused: !!(p.salesPaused ?? p.isPaused ?? p.paused),
@@ -175,13 +181,14 @@ export function mapPlacementFromProperty(p) {
 
 /**
  * Investment row for a property (proposed backend DTO) -> holder row for the object card.
- * Tokens are taken as-is, or derived from amount / tokenPrice when the backend omits them.
+ * Tokens are taken as-is, or derived from amount / tokenPrice when the backend omits them —
+ * floored, never rounded, because a rounded-up count would report shares nobody placed.
  */
 export function mapHolderFromInvestment(dto, property = {}) {
   const tokenPrice = property.tokenPrice;
   const tokens =
     dto.tokens ??
-    (dto.amount != null && tokenPrice ? Math.round(dto.amount / tokenPrice) : null);
+    (dto.amount != null && tokenPrice ? Math.floor(dto.amount / tokenPrice) : null);
   return {
     id: dto.id || dto.userId || dto.investmentId,
     name: dto.fullName || dto.investorName || dto.name || dto.phoneNumber || dto.phone || 'Инвестор',
@@ -500,7 +507,11 @@ export function mapPublicationToCreateRequest({ type, title, summary, propertyId
  */
 export function mapPropertyToCreateRequest(form) {
   const tokenPrice = Number(form.tokenPrice ?? 0);
-  const totalTokens = Number(form.totalTokens ?? 0);
+  const totalTokens = wholeTokens(form.totalTokens);
+  const minPurchaseTokens = Math.min(
+    Math.max(1, wholeTokens(form.minPurchaseTokens, 1)),
+    totalTokens || 1,
+  );
   // Backend requires totalValue > 0; default it to price × supply when not given.
   const totalValue = Number(form.totalValue ?? form.currentValuation ?? tokenPrice * totalTokens);
   return {
@@ -510,6 +521,7 @@ export function mapPropertyToCreateRequest(form) {
     totalValue,
     tokenPrice,
     totalTokens,
+    minPurchaseTokens,
     currency: form.currency || 'USD',
     // Descriptive characteristics (optional) — now persisted by the backend.
     propertyType: form.type || null,
@@ -533,6 +545,17 @@ function numOrNull(value) {
   if (value == null || value === '') return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Количество токенов, приведённое к целому. Токен неделим (decimals() = 0 на контракте), и
+ * бэкенд отклонит дробный выпуск — но отклонит уже после отправки формы, сообщением про
+ * валидацию. Отсекаем здесь, чтобы поле в админке и то, что уходит на сервер, были одним
+ * числом. Отсекаем ВНИЗ: выпуск, округлённый вверх, не влез бы в TOKEN_MAX_SUPPLY контракта.
+ */
+function wholeTokens(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
 // Room breakdown rows -> API shape. Blank rows (the admin added a line and left it empty) are
@@ -565,7 +588,11 @@ export function mapBuildingToCreateRequest(form) {
  */
 export function mapUnitToCreateRequest(unit, building, buildingId) {
   const tokenPrice = Number(unit.tokenPrice ?? 0);
-  const totalTokens = Number(unit.totalTokens ?? 0);
+  const totalTokens = wholeTokens(unit.totalTokens);
+  const minPurchaseTokens = Math.min(
+    Math.max(1, wholeTokens(unit.minPurchaseTokens, 1)),
+    totalTokens || 1,
+  );
   return {
     name: unit.name || unitFallbackName(unit),
     description: unit.description || null,
@@ -573,6 +600,7 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     totalValue: Number(unit.totalValue || tokenPrice * totalTokens),
     tokenPrice,
     totalTokens,
+    minPurchaseTokens,
     currency: unit.currency || building?.currency || 'KGS',
     propertyType: building?.type || null,
     city: building?.city || null,

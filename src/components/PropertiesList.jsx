@@ -91,12 +91,11 @@ function compressImage(file, maxDim = 2048, quality = 0.85) {
 
 // Formats an amount already expressed in its own currency (no USD conversion),
 // unlike utils.formatVal which converts from USD. Backend token prices are native.
-// Доли дробные (выпуск на 57,55 токена под 57,55 м²), поэтому счётчики токенов показываем с
-// дробью до 2 знаков — ровно масштаб доли (TokenAmount.Scale на бэкенде).
+// Количество долей — всегда целое: токен неделим (decimals() = 0 на контракте). Дробных
+// разрядов здесь быть не может, и показывать их значило бы обещать делимость, которой нет.
 function formatTokens(count) {
   return new Intl.NumberFormat('ru-RU', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(Number(count) || 0);
 }
 
@@ -1453,6 +1452,30 @@ export default function PropertiesList({
                             <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Валюта</span>
                             <span className="text-sm font-bold font-mono text-gray-900">{selectedProp.currency || '—'}</span>
                           </div>
+                          <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Минимальная покупка</span>
+                            <span className="text-sm font-bold font-mono text-gray-900">
+                              {formatTokens(selectedProp.minPurchaseTokens ?? 1)}
+                            </span>
+                            <span className="block text-[9px] text-gray-400 font-mono mt-0.5">
+                              {formatMoney(
+                                selectedProp.minPurchaseAmount
+                                  ?? (selectedProp.minPurchaseTokens ?? 1) * (selectedProp.tokenPrice ?? 0),
+                                selectedProp.currency,
+                              )}
+                            </span>
+                          </div>
+                          {/* Площадь на токен — расчётный эквивалент рядом с количеством. Единица
+                              выпуска это доля, а не метр: подписано, чтобы их не путали. */}
+                          {selectedProp.areaPerTokenSqM != null && (
+                            <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
+                              <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Эквивалент 1 токена</span>
+                              <span className="text-sm font-bold font-mono text-gray-900">
+                                ≈ {Number(selectedProp.areaPerTokenSqM).toLocaleString('ru-RU', { maximumFractionDigits: 4 })} м²
+                              </span>
+                              <span className="block text-[9px] text-gray-400 font-mono mt-0.5">расчётно</span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Sold progress + offering controls (pause / resume) */}

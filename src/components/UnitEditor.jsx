@@ -30,6 +30,7 @@ export function newUnit(unitType = 'apartment') {
     rooms: (ROOM_PRESETS[unitType] || []).map((name) => ({ name, areaSqM: '' })),
     tokenPrice: 1000,
     totalTokens: 1000,
+    minPurchaseTokens: 1,
     totalValue: '',
     imageFiles: [],
     imagePreviews: [],
@@ -265,7 +266,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
           Выпуск токенов на это помещение
         </span>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div>
             <label className={labelClass}>Цена за токен ({currencyLabel})</label>
             <input
@@ -277,13 +278,22 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
           </div>
           <div>
             <label className={labelClass}>Всего токенов</label>
-            {/* Выпуск часто задают по площади (57,55 м² → 57,55 токена), поэтому дробь обязана
-                вводиться; шаг 0.01 — ровно масштаб доли (TokenAmount.Scale), мельче бэкенд
-                отклонит. */}
+            {/* Только целые: на контракте decimals() = 0, дробный выпуск невозможно выпустить.
+                Токен — доля выпуска, а не квадратный метр: выпуск режут на столько долей,
+                чтобы цена одной была мелкой против минимального входа. */}
             <input
-              type="number" min="0.01" step="0.01" required
+              type="number" min="1" step="1" required
               value={unit.totalTokens}
               onChange={(e) => patch({ totalTokens: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Минимальная покупка (токенов)</label>
+            <input
+              type="number" min="1" step="1"
+              value={unit.minPurchaseTokens ?? 1}
+              onChange={(e) => patch({ minPurchaseTokens: e.target.value })}
               className={`${inputClass} font-mono`}
             />
           </div>
@@ -299,8 +309,19 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
           </div>
         </div>
         <p className="text-[8px] text-gray-400 font-mono mt-1.5">
-          По умолчанию = цена токена × количество токенов.
+          Стоимость по умолчанию = цена токена × количество токенов. Порог входа ={' '}
+          {num(unit.tokenPrice) * Math.max(1, num(unit.minPurchaseTokens) || 1) || '—'} {currencyLabel}.
+          Правило номинала: цена токена не больше одного процента минимального входа.
         </p>
+        {num(unit.totalAreaSqM) > 0 && num(unit.totalTokens) > 0 && (
+          <p className="text-[8px] text-gray-400 font-mono mt-1">
+            Расчётный эквивалент: 1 токен ≈{' '}
+            {(num(unit.totalAreaSqM) / num(unit.totalTokens)).toLocaleString('ru-RU', {
+              maximumFractionDigits: 4,
+            })}{' '}
+            м². Это производная величина для показа, а не единица выпуска.
+          </p>
+        )}
       </div>
 
       {/* Unit photos */}
