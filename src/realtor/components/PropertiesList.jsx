@@ -37,12 +37,23 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-// Абсолютный адрес медиа → относительный /media/...: в dev его проксирует Vite, в проде фронт
-// живёт на том же origin. Тот же приём, что и в realtor/api/properties.js для фото объектов.
+// Базовый адрес медиа. В dev это пустая строка: Vite проксирует /media на бэкенд (vite.config.ts),
+// значит адрес остаётся same-origin и брошюра может втянуть фото в canvas. В проде такого прокси
+// нет — относительный /media/... попадает в SPA-фолбэк, nginx отдаёт index.html с кодом 200, и
+// браузер рисует битую картинку вместо image/webp. Поэтому в проде адрес абсолютный, как на сайте
+// и в инвесторском дашборде, где фото никогда и не ломались.
+//
+// Фото в PDF-брошюре — единственное, чему абсолютный адрес мешает: медиа отдаётся без
+// CORS-заголовков, а canvas чужой домен не читает. Починится, когда /media начнёт проксироваться
+// и на admin.atria.kg — см. deploy/nginx-media.conf; после этого MEDIA_BASE можно вернуть к ''.
+const MEDIA_BASE = import.meta.env.DEV
+  ? ''
+  : (import.meta.env.VITE_API_BASE_URL || 'https://api.atria.kg').replace(/\/+$/, '');
+
 function toMediaUrl(url) {
   if (!url) return null;
   const i = url.indexOf('/media/');
-  return i >= 0 ? url.slice(i) : url;
+  return i >= 0 ? `${MEDIA_BASE}${url.slice(i)}` : url;
 }
 
 export default function PropertiesList({
