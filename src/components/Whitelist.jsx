@@ -128,10 +128,17 @@ export default function Whitelist({ properties = [], investors = [], onOpenInves
     load(propertyId, status);
   }, [propertyId, status, load]);
 
+  // Заявка несёт снимок кошелька на момент покупки: инвестор, привязавший адрес позже, висит в
+  // очереди как «нет кошелька», хотя адрес у него есть. Берём актуальный из реестра инвесторов.
+  const walletOf = useCallback(
+    (e) => e.walletAddress || investors.find((i) => i.id === e.investorId)?.walletAddress || '',
+    [investors],
+  );
+
   // Only these can go into a batch: approved, not already in one, and with an address to mint to.
   const mintable = useMemo(
-    () => entries.filter((e) => e.status === 'Ready' && e.walletAddress),
-    [entries],
+    () => entries.filter((e) => e.status === 'Ready' && walletOf(e)),
+    [entries, walletOf],
   );
 
   const selectedTokens = useMemo(
@@ -344,7 +351,7 @@ export default function Whitelist({ properties = [], investors = [], onOpenInves
                     {entries.map((e) => {
                       const meta = STATUS[e.status] ?? STATUS.Pending;
                       const Icon = meta.icon;
-                      const selectable = e.status === 'Ready' && Boolean(e.walletAddress);
+                      const selectable = e.status === 'Ready' && Boolean(walletOf(e));
 
                       return (
                         <tr key={e.id} className="border-t border-gray-100">
@@ -373,7 +380,21 @@ export default function Whitelist({ properties = [], investors = [], onOpenInves
                           </td>
                           <td className="px-4 py-3 text-gray-700">{e.propertyName ?? '—'}</td>
                           <td className="px-4 py-3 font-mono text-gray-900">
-                            {e.walletAddress ?? (
+                            {walletOf(e) ? (
+                              <>
+                                {walletOf(e)}
+                                {/* Адрес взят из профиля, а не из самой заявки: минтить есть куда,
+                                    но бэкенд у заявки его не хранит — оператор должен это видеть. */}
+                                {!e.walletAddress && (
+                                  <span
+                                    className="ml-1.5 text-[9px] uppercase tracking-wider text-gray-400"
+                                    title="В заявке адреса нет — показан кошелёк из профиля инвестора"
+                                  >
+                                    из профиля
+                                  </span>
+                                )}
+                              </>
+                            ) : (
                               // No address means nothing to mint to. The request is still tracked —
                               // an invisible one is a problem nobody can fix.
                               <span className="inline-flex items-center gap-1 text-amber-600">
