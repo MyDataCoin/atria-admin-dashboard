@@ -5,7 +5,7 @@ export default function Header({
   onMenuToggle, 
   adminUser, 
   activePlacementsCount, 
-  currency = 'USD',
+  currency = 'KGS',
   onCurrencyChange,
   sysLogsCount
 }) {

@@ -13,8 +13,7 @@ export default function PublishedList({
   const formatMoney = (val, currency = 'KGS') => {
     return new Intl.NumberFormat('ru-RU', { style: 'currency', currency, maximumFractionDigits: 0 })
       .format(val || 0)
-      .replace('KGS', 'сом')
-      .replace('EUR', '€');
+      .replace('KGS', 'сом');
   };
 
   return (

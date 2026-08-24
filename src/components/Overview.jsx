@@ -41,7 +41,7 @@ export default function Overview({
   realtors = [],
   realtorsLoading = false,
   realtorsError = '',
-  currency = 'USD',
+  currency = 'KGS',
   onNavigate,
   onAddLog
 }) {
@@ -89,7 +89,7 @@ export default function Overview({
       label: 'Объем инвестиций RWA',
       // Real invested volume from the backend, already in its own currency — shown as-is
       // (not through formatVal, which would apply an FX rate and inflate it).
-      value: `${Math.round(stats.totalInvestedVolume || 0).toLocaleString('en-US')} ${stats.investedCurrency || currency}`,
+      value: `${Math.round(stats.totalInvestedVolume || 0).toLocaleString('ru-RU')} ${stats.investedCurrency || currency}`,
       icon: Coins,
       desc: 'Привлеченный капитал',
       subtext: `${stats.totalInvestors} инвесторов в реестре`,

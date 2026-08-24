@@ -173,7 +173,7 @@ export function mapPlacementFromProperty(p) {
     investorsCount: 0, // not exposed by the API yet
     launchDate: '—',
     endDate: '—',
-    currency: p.currency || 'USD',
+    currency: p.currency || 'KGS',
     description: p.description || `Публичное размещение долей объекта «${p.name}».`,
     _source: 'api',
   };
@@ -195,7 +195,7 @@ export function mapHolderFromInvestment(dto, property = {}) {
     walletAddress: dto.walletAddress || '',
     tokens,
     amount: dto.amount ?? null,
-    currency: dto.currency || property.currency || 'USD',
+    currency: dto.currency || property.currency || 'KGS',
     // Backend may send the share directly; otherwise the UI derives it from tokens.
     sharePercent: dto.sharePercent ?? dto.share ?? null,
     status: dto.status || null,
@@ -214,7 +214,7 @@ export function mapInvestorHoldingFromApi(dto) {
     propertyName: dto.propertyName || dto.property?.name || 'Объект',
     tokensOwned: dto.tokenCount ?? dto.tokens ?? 0,
     amount: dto.amount ?? null,
-    currency: dto.currency || 'USD',
+    currency: dto.currency || 'KGS',
     // Share of the property the investor holds; null if the backend doesn't send it.
     sharePercent: dto.sharePercent ?? dto.share ?? null,
     status: dto.status || null,
@@ -522,7 +522,7 @@ export function mapPropertyToCreateRequest(form) {
     tokenPrice,
     totalTokens,
     minPurchaseTokens,
-    currency: form.currency || 'USD',
+    currency: form.currency || 'KGS',
     // Descriptive characteristics (optional) — now persisted by the backend.
     propertyType: form.type || null,
     city: form.city || null,

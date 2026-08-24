@@ -644,14 +644,14 @@ export default function PropertiesList({
   };
 
   // Объекты из API идут в своей валюте (KGS), поэтому формат зависит от currency.
-  const formatMoney = (val, currency = 'EUR') => {
+  // Дефолт — KGS, а не EUR: объект без явной валюты рисовался в евро на пустом месте.
+  const formatMoney = (val, currency = 'KGS') => {
     const formatted = new Intl.NumberFormat('ru-RU', {
       style: 'currency',
       currency,
       maximumFractionDigits: 0
     })
       .format(val || 0)
-      .replace('EUR', '€')
       .replace(',00', '');
     return currency === 'KGS' ? formatted.replace('KGS', 'сом') : formatted;
   };

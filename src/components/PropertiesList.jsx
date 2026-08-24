@@ -89,8 +89,8 @@ function compressImage(file, maxDim = 2048, quality = 0.85) {
   });
 }
 
-// Formats an amount already expressed in its own currency (no USD conversion),
-// unlike utils.formatVal which converts from USD. Backend token prices are native.
+// Formats an amount already expressed in its own currency (no FX conversion), unlike
+// utils.formatVal. Backend token prices are native.
 // Количество долей — всегда целое: токен неделим (decimals() = 0 на контракте). Дробных
 // разрядов здесь быть не может, и показывать их значило бы обещать делимость, которой нет.
 function formatTokens(count) {
@@ -99,11 +99,9 @@ function formatTokens(count) {
   }).format(Number(count) || 0);
 }
 
-function formatMoney(amount, currencyCode = 'USD') {
+function formatMoney(amount, currencyCode = 'KGS') {
   if (amount === null || amount === undefined || isNaN(amount)) return '—';
-  const n = Number(amount).toLocaleString('en-US', { maximumFractionDigits: 2 });
-  if (currencyCode === 'USD') return `$${n}`;
-  if (currencyCode === 'EUR') return `€${n}`;
+  const n = Number(amount).toLocaleString('ru-RU', { maximumFractionDigits: 2 });
   if (currencyCode === 'KGS') return `${n} с`;
   return `${n} ${currencyCode}`;
 }
@@ -115,7 +113,7 @@ export default function PropertiesList({
   documents,
   setDocuments,
   investors,
-  currency = 'USD',
+  currency = 'KGS',
   onAddLog
 }) {
   // Saving state for the create-on-backend flow (create + image uploads).
@@ -1936,7 +1934,7 @@ export default function PropertiesList({
                           key={unit.key}
                           unit={unit}
                           index={idx}
-                          currencyLabel={formData.currency === 'USD' ? '$' : 'сом'}
+                          currencyLabel="сом"
                           onChange={(next) =>
                             setFormUnits((prev) => prev.map((u, i) => (i === idx ? next : u)))
                           }
