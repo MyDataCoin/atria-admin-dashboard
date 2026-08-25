@@ -254,6 +254,15 @@ async function doRefresh() {
       throw new SessionExpiredError();
     }
 
+    // 429 says "too often", not "something broke": retrying inside the same limiter window only
+    // spends the remaining attempts on a door that is already shut. Wait out the window the server
+    // names instead — the session itself is untouched.
+    if (res.status === 429) {
+      const retryAfter = Number(res.headers.get('Retry-After'));
+      throw new RefreshUnavailableError(
+        new ApiError(429, { retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : null }));
+    }
+
     if (!res.ok) {
       // 5xx, a gateway page, anything else: the session may well be fine. Keep it and try again.
       lastError = new ApiError(res.status, await safeProblem(res));
