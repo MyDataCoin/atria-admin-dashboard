@@ -2,7 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import { Building, FileText, MapPin } from 'lucide-react';
 import api from '../api';
-import { UNIT_TYPE_LABELS, mapHolderFromInvestment } from '../api/mappers';
+import {
+  UNIT_TYPE_LABELS,
+  mapHolderFromInvestment,
+  isParkingUnitType,
+  formatParkingSpot,
+} from '../api/mappers';
 import { safeUrl } from '../utils';
 import { RoomBreakdown } from './UnitEditor';
 
@@ -189,10 +194,15 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
                       label="Номер / этаж"
                       value={`${property.unitNumber || '—'}${property.floorNumber != null ? ` / ${property.floorNumber}` : ''}`}
                     />
-                    <Metric
-                      label="Комнатность"
-                      value={property.roomCount ? `${property.roomCount}-комн.` : '—'}
-                    />
+                    {/* Паркинг адресуется секцией-рядом-местом, комнатности у него нет. */}
+                    {isParkingUnitType(property.unitType) ? (
+                      <Metric label="Секция / ряд / место" value={formatParkingSpot(property)} />
+                    ) : (
+                      <Metric
+                        label="Комнатность"
+                        value={property.roomCount ? `${property.roomCount}-комн.` : '—'}
+                      />
+                    )}
                     <Metric
                       label="Площадь"
                       value={property.totalAreaSqM ? `${Number(property.totalAreaSqM).toFixed(2)} м²` : '—'}

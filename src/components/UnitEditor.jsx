@@ -1,9 +1,22 @@
 import React from 'react';
-import { Plus, Trash2, Home, Car } from 'lucide-react';
-import { UNIT_TYPE_LABELS } from '../api/mappers';
+import { Plus, Trash2, Home, Car, FileText } from 'lucide-react';
+import { UNIT_TYPE_LABELS, isParkingUnitType } from '../api/mappers';
 
 // Max photos per unit — mirrors Property.MaxImages on the backend.
 export const MAX_UNIT_IMAGES = 10;
+
+// What POST /properties/{id}/documents accepts: PDF or image, 25 MB. Enforced here too so an
+// oversized file is refused while the admin is still looking at the form, rather than after a
+// building and all its units have already been created.
+export const MAX_UNIT_DOC_BYTES = 25 * 1024 * 1024;
+const ALLOWED_DOC_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+
+/** Why this file cannot be uploaded, or '' when it is fine. */
+export function unitDocRejection(file) {
+  if (!ALLOWED_DOC_TYPES.includes(file.type)) return 'только PDF или изображение';
+  if (file.size > MAX_UNIT_DOC_BYTES) return 'больше 25 МБ';
+  return '';
+}
 
 // Suggested room rows per unit type. The admin can rename/remove any of them: the backend stores a
 // free-text label plus an area, so a 4-room flat with two bathrooms or a garage all fit the same list.
@@ -24,6 +37,9 @@ export function newUnit(unitType = 'apartment') {
     name: '',
     unitNumber: '',
     floorNumber: '',
+    section: '',
+    row: '',
+    spot: '',
     roomCount: unitType === 'apartment' ? 2 : '',
     totalAreaSqM: '',
     description: '',
@@ -34,6 +50,9 @@ export function newUnit(unitType = 'apartment') {
     totalValue: '',
     imageFiles: [],
     imagePreviews: [],
+    // Правоустанавливающие файлы этого помещения. У гаража свой техпаспорт и своя выписка, поэтому
+    // документы висят на помещении, а не на здании — бэкенд их так и хранит, на выпуске.
+    docFiles: [],
   };
 }
 
@@ -79,6 +98,23 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
     });
   };
 
+  const addDocs = (fileList) => {
+    const picked = Array.from(fileList || []);
+    const accepted = picked.filter((f) => !unitDocRejection(f));
+    const rejected = picked.filter((f) => unitDocRejection(f));
+    // Отказ показываем сразу и поимённо: молча отбросить выбранный файл — значит дать админу
+    // сохранить объект в уверенности, что документ приложен.
+    patch({
+      docFiles: [...(unit.docFiles || []), ...accepted],
+      docError: rejected.length
+        ? rejected.map((f) => `${f.name} — ${unitDocRejection(f)}`).join('; ')
+        : '',
+    });
+  };
+
+  const removeDoc = (i) =>
+    patch({ docFiles: (unit.docFiles || []).filter((_, di) => di !== i), docError: '' });
+
   const removePhoto = (i) => {
     const preview = (unit.imagePreviews || [])[i];
     if (preview) URL.revokeObjectURL(preview);
@@ -89,7 +125,8 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
   };
 
   const isApartmentLike = unit.unitType === 'apartment' || unit.unitType === 'commercial';
-  const Icon = unit.unitType === 'garage' || unit.unitType === 'parking_space' ? Car : Home;
+  const isParking = isParkingUnitType(unit.unitType);
+  const Icon = isParking ? Car : Home;
 
   return (
     <div className="border border-gray-200 rounded-sm bg-gray-50/60 p-4 space-y-4">
@@ -140,7 +177,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         <div>
           <label className={labelClass}>Номер</label>
           <input
-            type="text" placeholder="12 / Г-4"
+            type="text" placeholder={isParking ? 'P-125' : '12 / Г-4'}
             value={unit.unitNumber}
             onChange={(e) => patch({ unitNumber: e.target.value })}
             className={inputClass}
@@ -149,27 +186,63 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         <div>
           <label className={labelClass}>Этаж</label>
           <input
-            type="number" placeholder="4"
+            type="number" placeholder={isParking ? '-1' : '4'}
             value={unit.floorNumber}
             onChange={(e) => patch({ floorNumber: e.target.value })}
             className={`${inputClass} font-mono`}
           />
         </div>
-        <div>
-          <label className={labelClass}>Комнатность</label>
-          <select
-            value={unit.roomCount ?? ''}
-            onChange={(e) => patch({ roomCount: e.target.value })}
-            disabled={!isApartmentLike}
-            className={`${inputClass} disabled:bg-gray-100 disabled:text-gray-400`}
-          >
-            <option value="">—</option>
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <option key={n} value={n}>{n}-комнатный</option>
-            ))}
-          </select>
-        </div>
+        {!isParking && (
+          <div>
+            <label className={labelClass}>Комнатность</label>
+            <select
+              value={unit.roomCount ?? ''}
+              onChange={(e) => patch({ roomCount: e.target.value })}
+              disabled={!isApartmentLike}
+              className={`${inputClass} disabled:bg-gray-100 disabled:text-gray-400`}
+            >
+              <option value="">—</option>
+              {[1, 2, 3, 4, 5, 6].map((n) => (
+                <option key={n} value={n}>{n}-комнатный</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
+
+      {/* Where the car stands. Only a garage / parking space is addressed this way, so these
+          fields stay out of the way for a flat. */}
+      {isParking && (
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className={labelClass}>Секция / блок</label>
+            <input
+              type="text" placeholder="B"
+              value={unit.section ?? ''}
+              onChange={(e) => patch({ section: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Ряд</label>
+            <input
+              type="text" placeholder="12"
+              value={unit.row ?? ''}
+              onChange={(e) => patch({ row: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Место</label>
+            <input
+              type="text" placeholder="125"
+              value={unit.spot ?? ''}
+              onChange={(e) => patch({ spot: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="sm:col-span-2">
@@ -189,7 +262,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         <div>
           <label className={labelClass}>Общая площадь, м²</label>
           <input
-            type="number" min="0" step="0.01" placeholder="128.82"
+            type="number" min="0" step="0.01" placeholder={isParking ? '15.2' : '128.82'}
             value={unit.totalAreaSqM}
             onChange={(e) => patch({ totalAreaSqM: e.target.value })}
             className={`${inputClass} font-mono`}
@@ -197,69 +270,72 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         </div>
       </div>
 
-      {/* Room breakdown */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
-            Разбивка по помещениям
-          </span>
-          <span className="text-[9px] font-mono text-gray-500">
-            Σ {roomsSum.toFixed(2)} м²
-            {totalArea > 0 && ` / ${totalArea.toFixed(2)} м²`}
-          </span>
+      {/* Room breakdown. A garage or a parking space has nothing to break down, so the whole
+          table is hidden for those rather than shown empty. */}
+      {!isParking && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
+              Разбивка по помещениям
+            </span>
+            <span className="text-[9px] font-mono text-gray-500">
+              Σ {roomsSum.toFixed(2)} м²
+              {totalArea > 0 && ` / ${totalArea.toFixed(2)} м²`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`${labelClass} flex-1 min-w-0 mb-0`}>Название помещения</span>
+            <span className={`${labelClass} w-28 shrink-0 mb-0`}>Площадь</span>
+            <span className="w-5" />
+            <span className="w-[13px]" />
+          </div>
+
+          <div className="space-y-2">
+            {(unit.rooms || []).map((room, ri) => (
+              <div key={ri} className="flex items-center gap-2">
+                <input
+                  type="text" placeholder="Кухня+Столовая / Спальня / Ванная"
+                  value={room.name}
+                  onChange={(e) => setRoom(ri, { name: e.target.value })}
+                  className={`${inputBase} flex-1 min-w-0`}
+                />
+                <input
+                  type="number" min="0" step="0.01" placeholder="28.68"
+                  value={room.areaSqM}
+                  onChange={(e) => setRoom(ri, { areaSqM: e.target.value })}
+                  className={`${inputBase} w-28 shrink-0 font-mono`}
+                />
+                <span className="text-[9px] font-mono text-gray-400 w-5">м²</span>
+                <button
+                  type="button"
+                  onClick={() => removeRoom(ri)}
+                  className="text-gray-300 hover:text-red-500 cursor-pointer"
+                  title="Удалить строку"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={addRoom}
+            className="mt-2 flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] hover:text-[#8e7b5e] cursor-pointer"
+          >
+            <Plus size={11} />
+            Добавить помещение
+          </button>
+
+          {areaMismatch && (
+            <p className="mt-1.5 text-[9px] font-mono text-amber-600">
+              Сумма помещений ({roomsSum.toFixed(2)} м²) не сходится с общей площадью
+              ({totalArea.toFixed(2)} м²). Это допустимо — сохранению не мешает.
+            </p>
+          )}
         </div>
-
-        <div className="flex items-center gap-2 mb-1">
-          <span className={`${labelClass} flex-1 min-w-0 mb-0`}>Название помещения</span>
-          <span className={`${labelClass} w-28 shrink-0 mb-0`}>Площадь</span>
-          <span className="w-5" />
-          <span className="w-[13px]" />
-        </div>
-
-        <div className="space-y-2">
-          {(unit.rooms || []).map((room, ri) => (
-            <div key={ri} className="flex items-center gap-2">
-              <input
-                type="text" placeholder="Кухня+Столовая / Спальня / Ванная"
-                value={room.name}
-                onChange={(e) => setRoom(ri, { name: e.target.value })}
-                className={`${inputBase} flex-1 min-w-0`}
-              />
-              <input
-                type="number" min="0" step="0.01" placeholder="28.68"
-                value={room.areaSqM}
-                onChange={(e) => setRoom(ri, { areaSqM: e.target.value })}
-                className={`${inputBase} w-28 shrink-0 font-mono`}
-              />
-              <span className="text-[9px] font-mono text-gray-400 w-5">м²</span>
-              <button
-                type="button"
-                onClick={() => removeRoom(ri)}
-                className="text-gray-300 hover:text-red-500 cursor-pointer"
-                title="Удалить строку"
-              >
-                <Trash2 size={13} />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          onClick={addRoom}
-          className="mt-2 flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] hover:text-[#8e7b5e] cursor-pointer"
-        >
-          <Plus size={11} />
-          Добавить помещение
-        </button>
-
-        {areaMismatch && (
-          <p className="mt-1.5 text-[9px] font-mono text-amber-600">
-            Сумма помещений ({roomsSum.toFixed(2)} м²) не сходится с общей площадью
-            ({totalArea.toFixed(2)} м²). Это допустимо — сохранению не мешает.
-          </p>
-        )}
-      </div>
+      )}
 
       {/* Issue — per unit */}
       <div className="border-t border-gray-200 pt-3">
@@ -352,6 +428,52 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
             </label>
           )}
         </div>
+      </div>
+
+      {/* Документы помещения. У гаража свой техпаспорт и своя выписка из реестра — они не
+          сводятся к документам здания, поэтому прикладываются здесь, к конкретному выпуску. */}
+      <div className="border-t border-gray-200 pt-3">
+        <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+          Документы помещения (PDF или изображение, до 25 МБ)
+        </span>
+
+        {(unit.docFiles || []).length > 0 && (
+          <div className="border border-gray-150 rounded-sm divide-y divide-gray-100 mb-2">
+            {(unit.docFiles || []).map((f, di) => (
+              <div key={`${f.name}-${di}`} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileText size={11} className="text-[#A38D6D] shrink-0" />
+                  <span className="text-[11px] text-gray-700 truncate">{f.name}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {(f.size / (1024 * 1024)).toFixed(1)} МБ
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeDoc(di)}
+                    className="text-[9px] uppercase font-bold tracking-wider text-red-500 hover:text-red-700 cursor-pointer"
+                  >
+                    Убрать
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <label className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-dashed border-gray-300 rounded-sm cursor-pointer hover:border-[#A38D6D] text-gray-500 hover:text-[#A38D6D] text-[9px] uppercase font-bold tracking-wider">
+          <Plus size={11} />
+          Приложить документ
+          <input
+            type="file" accept=".pdf,image/*" multiple className="hidden"
+            onChange={(e) => { addDocs(e.target.files); e.target.value = ''; }}
+          />
+        </label>
+
+        {unit.docError && (
+          <p className="mt-1.5 text-[10px] text-red-600">Не приложено: {unit.docError}</p>
+        )}
       </div>
     </div>
   );

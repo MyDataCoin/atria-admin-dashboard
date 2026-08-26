@@ -8,6 +8,8 @@ import {
   mapUnitToCreateRequest,
   mapUnitToUpdateRequest,
   UNIT_TYPE_LABELS,
+  isParkingUnitType,
+  formatParkingSpot,
 } from '../api/mappers';
 import { UnitCard, RoomBreakdown, newUnit } from './UnitEditor';
 import { safeUrl } from '../utils';
@@ -265,7 +267,10 @@ export default function PropertiesList({
   
   // Create / Edit modal state
   const [showFormModal, setShowFormModal] = useState(false);
-  const [formMode, setFormMode] = useState('create'); // create, edit
+  const [formMode, setFormMode] = useState('create'); // create, edit, addUnits
+  // Здание, в которое доводятся помещения в режиме addUnits. Держим объект целиком, а не только id:
+  // mapUnitToCreateRequest берёт из него город, застройщика и год — помещение наследует их у здания.
+  const [unitsTarget, setUnitsTarget] = useState(null);
   const [formData, setFormData] = useState({
     id: '',
     name: '',
@@ -386,6 +391,27 @@ export default function PropertiesList({
     setShowFormModal(true);
   };
 
+  /**
+   * «Добавить помещение» в уже существующем здании.
+   *
+   * Переиспользует ту же форму, что и регистрация здания, но без полей самого здания: оно уже
+   * заведено, и его город/застройщик/год помещение наследует из карточки, а не из формы. Раньше
+   * единственным способом добавить гараж к готовому дому было завести здание заново.
+   */
+  const handleOpenAddUnits = (building, e) => {
+    e?.stopPropagation();
+    setFormMode('addUnits');
+    setUnitsTarget(building);
+    // Имя здания нужно только для заголовка и логов: required-поле «Название» в этом режиме скрыто,
+    // а handleSaveForm проверяет formData.name на входе.
+    setFormData({ id: building.id, name: building.name, status: 'draft' });
+    setFormUnits([newUnit('apartment')]);
+    setFormDocs([]);
+    setSaveError('');
+    setSaveProgress('');
+    setShowFormModal(true);
+  };
+
   const handleOpenEdit = (prop, e) => {
     e.stopPropagation();
     setFormMode('edit');
@@ -396,6 +422,9 @@ export default function PropertiesList({
       unitType: prop.unitType || '',
       unitNumber: prop.unitNumber || '',
       floorNumber: prop.floorNumber ?? '',
+      section: prop.section || '',
+      row: prop.row || '',
+      spot: prop.spot || '',
       roomCount: prop.roomCount ?? '',
       totalAreaSqM: prop.totalAreaSqM ?? '',
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
@@ -607,9 +636,102 @@ export default function PropertiesList({
     }
   };
 
+  /**
+   * Заводит помещения в здании `buildingId`: property со своим выпуском, затем его фото и документы.
+   *
+   * Общая для регистрации нового здания и для добавления помещений в уже существующее — оба режима
+   * делают ровно одно и то же, отличаясь только тем, откуда взялся buildingId.
+   *
+   * Возвращает id созданных помещений и список файлов, которые не долетели. Неудавшийся документ
+   * НЕ откатывает помещение: оно уже создано на сервере, и притвориться, что его нет, нельзя —
+   * поэтому про такие файлы честно сообщаем, чтобы админ доложил их руками.
+   */
+  const createUnitsAsync = async (units, buildingLike, buildingId, status) => {
+    const createdUnitIds = [];
+    const failedUnitDocs = [];
+
+    for (let i = 0; i < units.length; i++) {
+      const unit = units[i];
+      const label = `${UNIT_TYPE_LABELS[unit.unitType] || 'Помещение'}${unit.unitNumber ? ` №${unit.unitNumber}` : ''}`;
+      setSaveProgress(`Создаём помещение ${i + 1} из ${units.length}: ${label}…`);
+
+      const unitId = await api.properties.create(
+        mapUnitToCreateRequest(unit, buildingLike, buildingId));
+      createdUnitIds.push(unitId);
+
+      const unitFiles = (unit.imageFiles || []).slice(0, MAX_IMAGES);
+      if (unitFiles.length) {
+        setSaveProgress(`Фото помещения ${i + 1} (${unitFiles.length})…`);
+        await uploadImages(unitId, unitFiles);
+      }
+
+      // Документы этого помещения — техпаспорт гаража, выписка на квартиру. Уходят на его
+      // собственный выпуск, а не в общий пакет здания: у каждого помещения он свой.
+      const unitDocs = unit.docFiles || [];
+      if (unitDocs.length) {
+        setSaveProgress(`Документы помещения ${i + 1} (${unitDocs.length})…`);
+        for (const file of unitDocs) {
+          try {
+            await api.properties.uploadDocument(unitId, file, file.name);
+          } catch {
+            /* один неудавшийся файл не отменяет уже созданное помещение */
+            failedUnitDocs.push(`${label}: ${file.name}`);
+          }
+        }
+      }
+
+      // POST /properties всегда создаёт черновик. Выбранный статус «скоро в продаже» проставляем
+      // отдельным вызовом — на каждое помещение, статус живёт на выпуске.
+      if (status === 'coming_soon') {
+        await api.properties.announce(unitId);
+      }
+    }
+
+    return { createdUnitIds, failedUnitDocs };
+  };
+
   const handleSaveForm = async (e) => {
     e.preventDefault();
     if (!formData.name) return;
+
+    // Доведение помещений в уже существующее здание: самого здания не касаемся вовсе.
+    if (formMode === 'addUnits') {
+      if (formUnits.length === 0) {
+        setSaveError('Добавьте хотя бы одно помещение.');
+        return;
+      }
+
+      setSaving(true);
+      setSaveError('');
+      setSaveProgress('');
+      try {
+        const { createdUnitIds, failedUnitDocs } = await createUnitsAsync(
+          formUnits, unitsTarget, unitsTarget.id, formData.status);
+
+        const docCount = formUnits.reduce((acc, u) => acc + (u.docFiles || []).length, 0);
+        onAddLog(
+          'Property Asset Created',
+          `В здание "${unitsTarget.name}" добавлено помещений: ${createdUnitIds.length}` +
+            `${formData.status === 'coming_soon' ? ' («Скоро в продаже»)' : ''}` +
+            `${docCount ? `, документов: ${docCount - failedUnitDocs.length} из ${docCount}` : ''}.` +
+            `${failedUnitDocs.length ? ` Не загрузились: ${failedUnitDocs.join(', ')}.` : ''}`
+        );
+
+        setShowFormModal(false);
+        setUnitsTarget(null);
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        setSaveError(
+          err?.status === 413
+            ? 'Файл слишком большой для сервера — уменьшите фото или поднимите лимит на бэке (nginx client_max_body_size)'
+            : (err?.problem?.detail || err?.message || 'Не удалось добавить помещения на сервере')
+        );
+      } finally {
+        setSaving(false);
+        setSaveProgress('');
+      }
+      return;
+    }
 
     if (formMode === 'create') {
       // Объект = здание. Оно само токенов не выпускает: выпуск идёт на каждое помещение внутри.
@@ -632,27 +754,8 @@ export default function PropertiesList({
           await uploadImages(buildingId, files, api.buildings.uploadImage);
         }
 
-        const createdUnitIds = [];
-        for (let i = 0; i < formUnits.length; i++) {
-          const unit = formUnits[i];
-          const label = `${UNIT_TYPE_LABELS[unit.unitType] || 'Помещение'}${unit.unitNumber ? ` №${unit.unitNumber}` : ''}`;
-          setSaveProgress(`Создаём помещение ${i + 1} из ${formUnits.length}: ${label}…`);
-
-          const unitId = await api.properties.create(mapUnitToCreateRequest(unit, formData, buildingId));
-          createdUnitIds.push(unitId);
-
-          const unitFiles = (unit.imageFiles || []).slice(0, MAX_IMAGES);
-          if (unitFiles.length) {
-            setSaveProgress(`Фото помещения ${i + 1} (${unitFiles.length})…`);
-            await uploadImages(unitId, unitFiles);
-          }
-
-          // POST /properties всегда создаёт черновик. Выбранный в форме статус «скоро в продаже»
-          // проставляем отдельным вызовом — на каждое помещение, статус живёт на выпуске.
-          if (formData.status === 'coming_soon') {
-            await api.properties.announce(unitId);
-          }
-        }
+        const { createdUnitIds, failedUnitDocs } = await createUnitsAsync(
+          formUnits, formData, buildingId, formData.status);
 
         // Документы бэкенд хранит только на выпуске (POST /properties/{id}/documents), не на
         // здании, поэтому общий пакет правоустанавливающих файлов уходит к первому помещению.
@@ -672,11 +775,14 @@ export default function PropertiesList({
           setDocuments([...synced, ...documents.filter(d => d.propertyId !== formData.id)]);
         }
 
+        const unitDocCount = formUnits.reduce((acc, u) => acc + (u.docFiles || []).length, 0);
         onAddLog(
           'Property Asset Created',
           `Создано здание "${formData.name}" на сервере, помещений с выпуском: ${createdUnitIds.length}` +
             `${formData.status === 'coming_soon' ? ' («Скоро в продаже»)' : ''}` +
-            `${files.length ? `, фото здания: ${files.length}` : ''}.`
+            `${files.length ? `, фото здания: ${files.length}` : ''}` +
+            `${unitDocCount ? `, документов помещений: ${unitDocCount - failedUnitDocs.length} из ${unitDocCount}` : ''}.` +
+            `${failedUnitDocs.length ? ` Не загрузились: ${failedUnitDocs.join(', ')}.` : ''}`
         );
         setShowFormModal(false);
         // Refresh from the backend so the new units (with photos) appear.
@@ -996,6 +1102,9 @@ export default function PropertiesList({
                 UNIT_TYPE_LABELS[prop.unitType] || 'Помещение',
                 prop.unitNumber ? `№${prop.unitNumber}` : null,
                 prop.roomCount ? `${prop.roomCount}-комн.` : null,
+                isParkingUnitType(prop.unitType) && formatParkingSpot(prop) !== '—'
+                  ? formatParkingSpot(prop)
+                  : null,
                 prop.totalAreaSqM ? `${Number(prop.totalAreaSqM).toFixed(2)} м²` : null,
                 prop.floorNumber != null ? `${prop.floorNumber} эт.` : null,
               ].filter(Boolean).join(' • ')}
@@ -1235,6 +1344,17 @@ export default function PropertiesList({
                   <span className="hidden sm:inline text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] opacity-0 group-hover/bld:opacity-100 transition-opacity">
                     Карточка здания
                   </span>
+                  {/* Довести помещение в уже готовое здание — гараж, ещё одну квартиру. */}
+                  <button
+                    type="button"
+                    onClick={(e) => handleOpenAddUnits(building, e)}
+                    className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[#A38D6D] hover:border-[#A38D6D] px-3 py-1.5 rounded text-[9px] uppercase font-bold tracking-wider cursor-pointer"
+                    title="Добавить в это здание новое помещение — квартиру, гараж, паркинг"
+                  >
+                    <Plus size={11} />
+                    <span>Помещение</span>
+                  </button>
+
                   {/* Публикация здания разом: все его квартиры и гаражи уходят в продажу. */}
                   {units.some((u) => u.status === 'draft' || u.status === 'coming_soon') && (
                     <button
@@ -1406,9 +1526,14 @@ export default function PropertiesList({
                             </span>
                           </div>
                           <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
-                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">Комнатность</span>
+                            {/* Для паркинга комнатности не бывает — на её месте стоит адрес места. */}
+                            <span className="text-[9px] uppercase text-gray-400 font-bold tracking-wider block mb-1">
+                              {isParkingUnitType(selectedProp.unitType) ? 'Секция / ряд / место' : 'Комнатность'}
+                            </span>
                             <span className="text-sm font-bold font-mono text-gray-900">
-                              {selectedProp.roomCount ? `${selectedProp.roomCount}-комн.` : '—'}
+                              {isParkingUnitType(selectedProp.unitType)
+                                ? formatParkingSpot(selectedProp)
+                                : selectedProp.roomCount ? `${selectedProp.roomCount}-комн.` : '—'}
                             </span>
                           </div>
                           <div className="bg-[#FAF8F3]/60 border border-gray-100 rounded p-3">
@@ -1774,13 +1899,18 @@ export default function PropertiesList({
                 <h3 className="text-lg font-serif font-bold text-gray-900 mt-0.5">
                   {formMode === 'create'
                     ? 'Зарегистрировать здание и помещения в нём'
-                    : 'Редактировать параметры актива'}
+                    : formMode === 'addUnits'
+                      ? `Добавить помещения — ${unitsTarget?.name || ''}`
+                      : 'Редактировать параметры актива'}
                 </h3>
               </div>
 
               <form onSubmit={handleSaveForm} className="space-y-4 text-xs">
                 
                 {/* General Data */}
+                {/* Паспорт здания. В режиме «добавить помещения» здание уже заведено — его поля
+                    (и required среди них) прятать обязательно, иначе форма не даст отправить себя. */}
+                {formMode !== 'addUnits' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
@@ -1823,8 +1953,10 @@ export default function PropertiesList({
                     />
                   </div>
                 </div>
+                )}
 
                 {/* Address, Developer, Floors, Description */}
+                {formMode !== 'addUnits' && (
                 <div className="space-y-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес объекта</label>
@@ -1892,12 +2024,15 @@ export default function PropertiesList({
                     />
                   </div>
                 </div>
+                )}
 
                 {/* Status (экономика задаётся в параметрах выпуска) */}
                 <div className="border-t border-gray-100 pt-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
-                      {formMode === 'create' ? 'Стартовый статус помещений' : 'Статус объекта'}
+                      {formMode === 'create' || formMode === 'addUnits'
+                        ? 'Стартовый статус помещений'
+                        : 'Статус объекта'}
                     </label>
                     <select
                       value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}
@@ -1912,15 +2047,17 @@ export default function PropertiesList({
                 </div>
 
                 {/* Помещения внутри здания. Каждое — отдельный выпуск токенов на бэке. */}
-                {formMode === 'create' && (
+                {(formMode === 'create' || formMode === 'addUnits') && (
                   <div className="border-t border-gray-100 pt-4">
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
-                          Помещения в объекте (обязательно)
+                          {formMode === 'addUnits' ? 'Новые помещения' : 'Помещения в объекте (обязательно)'}
                         </span>
                         <p className="text-[9px] text-gray-400 font-mono mt-1">
-                          Здание само токенов не выпускает — выпуск идёт на каждую квартиру и гараж отдельно.
+                          {formMode === 'addUnits'
+                            ? 'Добавятся к тем, что уже есть в здании. Город, застройщик и год берутся из карточки здания.'
+                            : 'Здание само токенов не выпускает — выпуск идёт на каждую квартиру и гараж отдельно.'}
                         </p>
                       </div>
                       <span className="text-[9px] font-mono text-gray-500 shrink-0 pt-0.5">
@@ -2017,20 +2154,55 @@ export default function PropertiesList({
                           className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                         />
                       </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Комнатность</label>
-                        <select
-                          value={formData.roomCount ?? ''}
-                          onChange={(e) => setFormData({ ...formData, roomCount: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                        >
-                          <option value="">—</option>
-                          {[1, 2, 3, 4, 5, 6].map((n) => (
-                            <option key={n} value={n}>{n}-комнатный</option>
-                          ))}
-                        </select>
-                      </div>
+                      {!isParkingUnitType(formData.unitType) && (
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Комнатность</label>
+                          <select
+                            value={formData.roomCount ?? ''}
+                            onChange={(e) => setFormData({ ...formData, roomCount: e.target.value })}
+                            className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                          >
+                            <option value="">—</option>
+                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n}>{n}-комнатный</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
                     </div>
+
+                    {/* Место в паркинге: секция-ряд-место вместо комнат. */}
+                    {isParkingUnitType(formData.unitType) && (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Секция / блок</label>
+                          <input
+                            type="text" placeholder="B"
+                            value={formData.section || ''}
+                            onChange={(e) => setFormData({ ...formData, section: e.target.value })}
+                            className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Ряд</label>
+                          <input
+                            type="text" placeholder="12"
+                            value={formData.row || ''}
+                            onChange={(e) => setFormData({ ...formData, row: e.target.value })}
+                            className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Место</label>
+                          <input
+                            type="text" placeholder="125"
+                            value={formData.spot || ''}
+                            onChange={(e) => setFormData({ ...formData, spot: e.target.value })}
+                            className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                          />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
@@ -2045,66 +2217,69 @@ export default function PropertiesList({
                     </div>
 
                     {/* Разбивка по помещениям: список заменяется целиком при сохранении. */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
-                          Разбивка по помещениям
-                        </span>
-                        <span className="text-[9px] font-mono text-gray-500">
-                          Σ {(formData.rooms || []).reduce((acc, r) => acc + (Number(r.areaSqM) || 0), 0).toFixed(2)} м²
-                        </span>
+                    {!isParkingUnitType(formData.unitType) && (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
+                            Разбивка по помещениям
+                          </span>
+                          <span className="text-[9px] font-mono text-gray-500">
+                            Σ {(formData.rooms || []).reduce((acc, r) => acc + (Number(r.areaSqM) || 0), 0).toFixed(2)} м²
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {(formData.rooms || []).map((room, ri) => (
+                            <div key={ri} className="flex items-center gap-2">
+                              <input
+                                type="text" placeholder="Кухня+Столовая"
+                                value={room.name}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  rooms: formData.rooms.map((r, i) => i === ri ? { ...r, name: e.target.value } : r),
+                                })}
+                                className="flex-1 p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                              />
+                              <input
+                                type="number" min="0" step="0.01" placeholder="28.68"
+                                value={room.areaSqM}
+                                onChange={(e) => setFormData({
+                                  ...formData,
+                                  rooms: formData.rooms.map((r, i) => i === ri ? { ...r, areaSqM: e.target.value } : r),
+                                })}
+                                className="w-28 p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                              />
+                              <span className="text-[9px] font-mono text-gray-400 w-5">м²</span>
+                              <button
+                                type="button"
+                                onClick={() => setFormData({
+                                  ...formData,
+                                  rooms: formData.rooms.filter((_, i) => i !== ri),
+                                })}
+                                className="text-gray-300 hover:text-red-500 cursor-pointer"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setFormData({
+                            ...formData,
+                            rooms: [...(formData.rooms || []), { name: '', areaSqM: '' }],
+                          })}
+                          className="mt-2 flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] hover:text-[#8e7b5e] cursor-pointer"
+                        >
+                          <Plus size={11} />
+                          Добавить помещение
+                        </button>
                       </div>
-                      <div className="space-y-2">
-                        {(formData.rooms || []).map((room, ri) => (
-                          <div key={ri} className="flex items-center gap-2">
-                            <input
-                              type="text" placeholder="Кухня+Столовая"
-                              value={room.name}
-                              onChange={(e) => setFormData({
-                                ...formData,
-                                rooms: formData.rooms.map((r, i) => i === ri ? { ...r, name: e.target.value } : r),
-                              })}
-                              className="flex-1 p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                            />
-                            <input
-                              type="number" min="0" step="0.01" placeholder="28.68"
-                              value={room.areaSqM}
-                              onChange={(e) => setFormData({
-                                ...formData,
-                                rooms: formData.rooms.map((r, i) => i === ri ? { ...r, areaSqM: e.target.value } : r),
-                              })}
-                              className="w-28 p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                            />
-                            <span className="text-[9px] font-mono text-gray-400 w-5">м²</span>
-                            <button
-                              type="button"
-                              onClick={() => setFormData({
-                                ...formData,
-                                rooms: formData.rooms.filter((_, i) => i !== ri),
-                              })}
-                              className="text-gray-300 hover:text-red-500 cursor-pointer"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setFormData({
-                          ...formData,
-                          rooms: [...(formData.rooms || []), { name: '', areaSqM: '' }],
-                        })}
-                        className="mt-2 flex items-center gap-1 text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] hover:text-[#8e7b5e] cursor-pointer"
-                      >
-                        <Plus size={11} />
-                        Добавить помещение
-                      </button>
-                    </div>
+                    )}
                   </div>
                 )}
 
                 {/* Images Upload Area */}
+                {formMode !== 'addUnits' && (
                 <div className="border-t border-gray-100 pt-4">
                   <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                     {formMode === 'create' ? 'Фото здания' : 'Фото помещения'} (максимум {MAX_IMAGES})
@@ -2187,8 +2362,12 @@ export default function PropertiesList({
                     Выберите JPG, PNG или WEBP (макс. {MAX_IMAGES}). При создании фото загружаются на сервер.
                   </p>
                 </div>
+                )}
 
                 {/* Documents attach area (available right at registration) — compact */}
+                {/* Общий пакет документов — только при регистрации здания. В режиме
+                    «добавить помещения» документы прикладываются к каждому помещению отдельно. */}
+                {formMode !== 'addUnits' && (
                 <div className="border-t border-gray-100 pt-4">
                   <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                     Документы объекта
@@ -2254,6 +2433,7 @@ export default function PropertiesList({
                     </label>
                   </div>
                 </div>
+                )}
 
                 {saving && saveProgress && (
                   <div className="text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
@@ -2271,7 +2451,7 @@ export default function PropertiesList({
                   <button
                     type="button"
                     disabled={saving}
-                    onClick={() => setShowFormModal(false)}
+                    onClick={() => { setShowFormModal(false); setUnitsTarget(null); }}
                     className="flex-1 bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 font-bold uppercase tracking-widest py-2.5 rounded transition-all text-center cursor-pointer disabled:opacity-50"
                   >
                     Отмена
@@ -2285,7 +2465,9 @@ export default function PropertiesList({
                       ? 'Сохранение…'
                       : formMode === 'create'
                         ? `Создать объект${formUnits.length ? ` и ${formUnits.length} помещ.` : ''}`
-                        : 'Сохранить изменения'}
+                        : formMode === 'addUnits'
+                          ? `Добавить ${formUnits.length} помещ.`
+                          : 'Сохранить изменения'}
                   </button>
                 </div>
               </form>
@@ -2410,9 +2592,19 @@ export default function PropertiesList({
                 </div>
 
                 <div>
-                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">
-                    Помещения ({selectedBuildingUnits.length})
-                  </h4>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <h4 className="text-sm font-serif font-bold text-gray-900">
+                      Помещения ({selectedBuildingUnits.length})
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={(e) => { const b = selectedBuilding; setSelectedBuilding(null); handleOpenAddUnits(b, e); }}
+                      className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[#A38D6D] hover:border-[#A38D6D] px-2.5 py-1.5 rounded text-[9px] uppercase font-bold tracking-wider cursor-pointer shrink-0"
+                    >
+                      <Plus size={11} />
+                      <span>Добавить</span>
+                    </button>
+                  </div>
                   {selectedBuildingUnits.length === 0 ? (
                     <p className="text-[11px] text-gray-400 font-mono">В этом здании ещё нет помещений.</p>
                   ) : (
@@ -2435,6 +2627,9 @@ export default function PropertiesList({
                               {[
                                 UNIT_TYPE_LABELS[u.unitType] || 'Помещение',
                                 u.unitNumber ? `№${u.unitNumber}` : null,
+                                isParkingUnitType(u.unitType) && formatParkingSpot(u) !== '—'
+                                  ? formatParkingSpot(u)
+                                  : null,
                                 u.floorNumber != null ? `${u.floorNumber} эт.` : null,
                                 u.totalAreaSqM ? `${Number(u.totalAreaSqM).toFixed(2)} м²` : null,
                               ].filter(Boolean).join(' • ')}

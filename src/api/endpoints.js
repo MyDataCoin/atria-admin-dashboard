@@ -139,8 +139,9 @@ export const properties = {
   },
   deleteImage: (id, imageId) =>
     request(`/properties/${id}/images/${imageId}`, { method: 'DELETE' }),
-  // Admin only. Uploads a document file (PDF/DOC/…) for a property. The backend stores only
-  // the file (multipart field `file`) and returns { id, url, fileName, contentType }.
+  // Admin only. Uploads a document file for a property. The backend accepts PDF, JPEG, PNG and
+  // WebP only, up to 25 MB — a DOC/DOCX is refused with a 400, despite what this comment used to
+  // claim. Stores only the file (multipart field `file`) and returns { id, url, fileName, contentType }.
   uploadDocument: (id, file, filename) => {
     const form = new FormData();
     form.append('file', file, filename || file.name || 'document.pdf');

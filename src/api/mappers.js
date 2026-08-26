@@ -91,6 +91,10 @@ export function mapPropertyFromApi(p) {
     unitType: p.unitType && p.unitType !== 'unspecified' ? p.unitType : '',
     unitNumber: p.unitNumber || '',
     floorNumber: p.floorNumber ?? null,
+    // Parking address of a garage / parking space. Empty for every other unit type.
+    section: p.section || '',
+    row: p.row || '',
+    spot: p.spot || '',
     roomCount: p.roomCount ?? null,
     totalAreaSqM: p.totalAreaSqM ?? null,
     rooms: Array.isArray(p.rooms)
@@ -534,6 +538,7 @@ export function mapPropertyToCreateRequest(form) {
     unitType: form.unitType || null,
     unitNumber: form.unitNumber || null,
     floorNumber: numOrNull(form.floorNumber),
+    ...parkingFields(form),
     roomCount: numOrNull(form.roomCount),
     totalAreaSqM: numOrNull(form.totalAreaSqM),
     rooms: mapRoomsToApi(form.rooms),
@@ -611,10 +616,33 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     unitType: unit.unitType || 'apartment',
     unitNumber: unit.unitNumber || null,
     floorNumber: numOrNull(unit.floorNumber),
+    ...parkingFields(unit),
     roomCount: numOrNull(unit.roomCount),
     totalAreaSqM: numOrNull(unit.totalAreaSqM),
     rooms: mapRoomsToApi(unit.rooms),
   };
+}
+
+/**
+ * Section / row / spot of a garage or parking space. Kept as free text — a section is "B" as often
+ * as it is "2". Sent as null for anything that is not parking so switching the type clears a value
+ * typed by mistake instead of leaving it stuck on the record.
+ */
+function parkingFields(unit) {
+  const parking = isParkingUnitType(unit.unitType);
+  const text = (v) => (parking && v != null && String(v).trim() !== '' ? String(v).trim() : null);
+  return { section: text(unit.section), row: text(unit.row), spot: text(unit.spot) };
+}
+
+/** Garage / parking space — located by section-row-spot rather than by rooms. */
+export function isParkingUnitType(unitType) {
+  return unitType === 'garage' || unitType === 'parking_space';
+}
+
+/** "B-12-125" for display. Em dash when the parking address was never filled in. */
+export function formatParkingSpot({ section, row, spot } = {}) {
+  const parts = [section, row, spot].map((v) => (v == null ? '' : String(v).trim()));
+  return parts.some(Boolean) ? parts.map((v) => v || '?').join('-') : '—';
 }
 
 /** PATCH /properties/{id} body for a unit's descriptive + unit fields. */
@@ -625,6 +653,7 @@ export function mapUnitToUpdateRequest(unit) {
     unitType: unit.unitType || null,
     unitNumber: unit.unitNumber || null,
     floorNumber: numOrNull(unit.floorNumber),
+    ...parkingFields(unit),
     roomCount: numOrNull(unit.roomCount),
     totalAreaSqM: numOrNull(unit.totalAreaSqM),
     // Always sent on edit: the admin edits the breakdown as one table, and an empty table means
