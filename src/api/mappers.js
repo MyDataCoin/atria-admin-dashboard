@@ -512,10 +512,7 @@ export function mapPublicationToCreateRequest({ type, title, summary, propertyId
 export function mapPropertyToCreateRequest(form) {
   const tokenPrice = Number(form.tokenPrice ?? 0);
   const totalTokens = wholeTokens(form.totalTokens);
-  const minPurchaseTokens = Math.min(
-    Math.max(1, wholeTokens(form.minPurchaseTokens, 1)),
-    totalTokens || 1,
-  );
+  const minPurchaseTokens = Math.min(minPurchaseTokensFrom(form), totalTokens || 1);
   // Backend requires totalValue > 0; default it to price × supply when not given.
   const totalValue = Number(form.totalValue ?? form.currentValuation ?? tokenPrice * totalTokens);
   return {
@@ -563,6 +560,31 @@ function wholeTokens(value, fallback = 0) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+/**
+ * Минимальный вход в долях — из того, что ввёл админ: либо количество токенов, либо сумму денег.
+ *
+ * Бэк принимает только minPurchaseTokens (целое): контракт знает доли, а не деньги, и
+ * MinPurchaseAmount на нём — производная (доли × цена). Поэтому денежный режим существует лишь как
+ * способ ввода, и перевод живёт здесь, в маппере, а не в компоненте формы — так ни один вызов
+ * не сможет случайно отправить сумму вместо долей.
+ *
+ * Округление ВВЕРХ: порог «не меньше 5000 сом» при цене 1200 — это 5 токенов (6000), а не 4 (4800),
+ * иначе заявленный минимум не собирается.
+ */
+export function minPurchaseTokensFrom(source) {
+  if (source?.minPurchaseMode !== 'amount') {
+    return Math.max(1, wholeTokens(source?.minPurchaseTokens, 1));
+  }
+
+  const price = Number(source?.tokenPrice);
+  const amount = Number(source?.minPurchaseAmount);
+  if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(amount) || amount <= 0) return 1;
+
+  // Допуск перед ceil: 6000 / 1200 может дать 5.000000000000001, и голый ceil поднял бы
+  // ровно сходящийся порог до лишней доли.
+  return Math.max(1, Math.ceil(Math.round((amount / price) * 1e6) / 1e6));
+}
+
 // Room breakdown rows -> API shape. Blank rows (the admin added a line and left it empty) are
 // dropped so they never fail validation; `null` means "no breakdown sent at all".
 function mapRoomsToApi(rooms) {
@@ -594,10 +616,7 @@ export function mapBuildingToCreateRequest(form) {
 export function mapUnitToCreateRequest(unit, building, buildingId) {
   const tokenPrice = Number(unit.tokenPrice ?? 0);
   const totalTokens = wholeTokens(unit.totalTokens);
-  const minPurchaseTokens = Math.min(
-    Math.max(1, wholeTokens(unit.minPurchaseTokens, 1)),
-    totalTokens || 1,
-  );
+  const minPurchaseTokens = Math.min(minPurchaseTokensFrom(unit), totalTokens || 1);
   return {
     name: unit.name || unitFallbackName(unit),
     description: unit.description || null,

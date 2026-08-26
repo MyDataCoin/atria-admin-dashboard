@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Trash2, Home, Car, FileText } from 'lucide-react';
-import { UNIT_TYPE_LABELS, isParkingUnitType } from '../api/mappers';
+import { UNIT_TYPE_LABELS, isParkingUnitType, minPurchaseTokensFrom } from '../api/mappers';
 
 // Max photos per unit — mirrors Property.MaxImages on the backend.
 export const MAX_UNIT_IMAGES = 10;
@@ -47,6 +47,10 @@ export function newUnit(unitType = 'apartment') {
     tokenPrice: 1000,
     totalTokens: 1000,
     minPurchaseTokens: 1,
+    // Как админ задаёт минимальный вход: 'tokens' — штуками, 'amount' — суммой. На бэк в обоих
+    // случаях уходит minPurchaseTokens: контракт знает только целые доли, деньги из них выводятся.
+    minPurchaseMode: 'tokens',
+    minPurchaseAmount: '',
     totalValue: '',
     imageFiles: [],
     imagePreviews: [],
@@ -124,6 +128,12 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
     });
   };
 
+  const minMode = unit.minPurchaseMode === 'amount' ? 'amount' : 'tokens';
+  // Порог в долях — то, что реально уйдёт на бэк, независимо от режима ввода.
+  // Ровно тот же расчёт, что уйдёт на бэк — из маппера, а не своя копия рядом: разойдись они,
+  // форма показывала бы один порог, а регистрировался бы другой.
+  const minTokens = minPurchaseTokensFrom(unit);
+
   const isApartmentLike = unit.unitType === 'apartment' || unit.unitType === 'commercial';
   const isParking = isParkingUnitType(unit.unitType);
   const Icon = isParking ? Car : Home;
@@ -150,7 +160,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
       </div>
 
       {/* What it is */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
         <div>
           <label className={labelClass}>Тип помещения</label>
           <select
@@ -213,7 +223,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
       {/* Where the car stands. Only a garage / parking space is addressed this way, so these
           fields stay out of the way for a flat. */}
       {isParking && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-3 items-end">
           <div>
             <label className={labelClass}>Секция / блок</label>
             <input
@@ -244,7 +254,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
         <div className="sm:col-span-2">
           <label className={labelClass}>Название (необязательно)</label>
           <input
@@ -342,17 +352,20 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
           Выпуск токенов на это помещение
         </span>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <div>
+        {/* Цена / выпуск / стоимость — три равные колонки. Минимальная покупка вынесена в свой ряд
+            ниже: у неё есть выбор единицы, и втиснутый в узкую колонку переключатель наезжал на
+            значение — «900000» обрезалось, а стрелки number-инпута упирались в кнопки. */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <div className="flex flex-col h-full">
             <label className={labelClass}>Цена за токен ({currencyLabel})</label>
             <input
               type="number" min="1" step="any" required
               value={unit.tokenPrice}
               onChange={(e) => patch({ tokenPrice: e.target.value })}
-              className={`${inputClass} font-mono`}
+              className={`${inputClass} font-mono mt-auto`}
             />
           </div>
-          <div>
+          <div className="flex flex-col h-full">
             <label className={labelClass}>Всего токенов</label>
             {/* Только целые: на контракте decimals() = 0, дробный выпуск невозможно выпустить.
                 Токен — доля выпуска, а не квадратный метр: выпуск режут на столько долей,
@@ -361,33 +374,78 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
               type="number" min="1" step="1" required
               value={unit.totalTokens}
               onChange={(e) => patch({ totalTokens: e.target.value })}
-              className={`${inputClass} font-mono`}
+              className={`${inputClass} font-mono mt-auto`}
             />
           </div>
-          <div>
-            <label className={labelClass}>Минимальная покупка (токенов)</label>
-            <input
-              type="number" min="1" step="1"
-              value={unit.minPurchaseTokens ?? 1}
-              onChange={(e) => patch({ minPurchaseTokens: e.target.value })}
-              className={`${inputClass} font-mono`}
-            />
-          </div>
-          <div>
+          <div className="flex flex-col h-full">
             <label className={labelClass}>Стоимость ({currencyLabel})</label>
             <input
               type="number" min="1" step="any"
               placeholder={String(num(unit.tokenPrice) * num(unit.totalTokens) || '')}
               value={unit.totalValue}
               onChange={(e) => patch({ totalValue: e.target.value })}
-              className={`${inputClass} font-mono`}
+              className={`${inputClass} font-mono mt-auto`}
             />
           </div>
         </div>
+
+        {/* Минимальный вход. Своя строка: сначала выбор единицы, потом поле — читается как фраза
+            «минимальная покупка: в токенах — 5», а не как поле с кнопками внутри. */}
+        <div className="mt-3">
+          <label className={labelClass}>Минимальная покупка</label>
+          <div className="flex items-stretch gap-2">
+            <div className="flex shrink-0 gap-1 bg-gray-100 rounded p-1">
+              {[
+                { id: 'tokens', label: 'в токенах' },
+                { id: 'amount', label: `в ${currencyLabel}` },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => patch({ minPurchaseMode: opt.id })}
+                  aria-pressed={minMode === opt.id}
+                  className={`px-3 rounded text-[9px] uppercase font-bold tracking-wider transition-colors cursor-pointer ${
+                    minMode === opt.id
+                      ? 'bg-white text-[#A38D6D] shadow-sm'
+                      : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {minMode === 'amount' ? (
+              <input
+                type="number" min="1" step="any"
+                placeholder={`Например: ${num(unit.tokenPrice) * 10 || 10000}`}
+                value={unit.minPurchaseAmount ?? ''}
+                onChange={(e) => patch({ minPurchaseAmount: e.target.value })}
+                className={`${inputBase} flex-1 min-w-0 font-mono`}
+              />
+            ) : (
+              <input
+                type="number" min="1" step="1"
+                value={unit.minPurchaseTokens ?? 1}
+                onChange={(e) => patch({ minPurchaseTokens: e.target.value })}
+                className={`${inputBase} flex-1 min-w-0 font-mono`}
+              />
+            )}
+          </div>
+        </div>
+
         <p className="text-[8px] text-gray-400 font-mono mt-1.5">
           Стоимость по умолчанию = цена токена × количество токенов. Порог входа ={' '}
-          {num(unit.tokenPrice) * Math.max(1, num(unit.minPurchaseTokens) || 1) || '—'} {currencyLabel}.
-          Правило номинала: цена токена не больше одного процента минимального входа.
+          <span className="text-gray-600 font-bold">
+            {minTokens} × {num(unit.tokenPrice) || '—'} = {num(unit.tokenPrice) * minTokens || '—'} {currencyLabel}
+          </span>
+          {/* Сумма почти никогда не делится на цену нацело. Показываем это только когда округление
+              действительно произошло — иначе строка врёт про поправку, которой не было. */}
+          {minMode === 'amount' && num(unit.tokenPrice) > 0
+            && num(unit.minPurchaseAmount) > 0
+            && num(unit.tokenPrice) * minTokens !== num(unit.minPurchaseAmount)
+            && ' — сумма округлена вверх до целой доли'}
+          . Правило номинала: цена токена не больше одного процента минимального входа.
         </p>
         {num(unit.totalAreaSqM) > 0 && num(unit.totalTokens) > 0 && (
           <p className="text-[8px] text-gray-400 font-mono mt-1">
