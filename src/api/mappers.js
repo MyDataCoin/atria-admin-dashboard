@@ -690,13 +690,51 @@ function unitFallbackName(unit) {
 
 /** Wire unit types -> Russian labels used across the admin UI. */
 export const UNIT_TYPE_LABELS = {
-  apartment: 'Апартамент',
+  apartment: 'Квартира',
   garage: 'Гараж',
   parking_space: 'Парковочное место',
   commercial: 'Коммерческое помещение',
+  // Кладовая и «Помещение» убраны из выбора при заведении (см. UNIT_KINDS), но подписи остаются:
+  // типы есть на бэкенде, и записи с ними, заведённые раньше, должны отображаться под своим
+  // именем, а не пустой строкой.
   storage: 'Кладовая',
   other: 'Помещение',
 };
+
+/**
+ * Три вида помещений, как их называет админ, и типы бэкенда за каждым.
+ *
+ * Бэкенд различает шесть типов (UnitType), и это правильно — гараж и парковочное место
+ * оформляются по-разному. Но заводя помещение, админ думает тремя категориями: `buttonLabel` —
+ * подпись кнопки, `defaultType` — что она заводит, `types` — какие типы этого вида вообще
+ * выбираются. Список «Тип помещения» строится отсюда же плоско, поэтому его порядок всегда
+ * совпадает с порядком кнопок.
+ *
+ * Здесь перечислено только то, что админ заводит РУКАМИ. `storage` и `other` в списке нет
+ * намеренно — кладовую и безымянное «помещение» через эту форму не заводят. Типы при этом живы на
+ * бэкенде и в UNIT_TYPE_LABELS, поэтому запись с ними, заведённая раньше или другим путём,
+ * читается и подписывается как прежде.
+ */
+export const UNIT_KINDS = [
+  {
+    id: 'residential',
+    buttonLabel: 'Жилое помещение',
+    defaultType: 'apartment',
+    types: ['apartment'],
+  },
+  {
+    id: 'commercial',
+    buttonLabel: 'Коммерческое',
+    defaultType: 'commercial',
+    types: ['commercial'],
+  },
+  {
+    id: 'parking',
+    buttonLabel: 'Гараж / Паркинг',
+    defaultType: 'garage',
+    types: ['garage', 'parking_space'],
+  },
+];
 
 /** API BuildingDto -> UI shape. `units` are mapped with the property mapper. */
 export function mapBuildingFromApi(b) {

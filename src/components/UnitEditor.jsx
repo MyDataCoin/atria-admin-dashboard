@@ -1,6 +1,6 @@
 import React from 'react';
 import { Plus, Trash2, Home, Car, FileText } from 'lucide-react';
-import { UNIT_TYPE_LABELS, isParkingUnitType, minPurchaseTokensFrom } from '../api/mappers';
+import { UNIT_TYPE_LABELS, UNIT_KINDS, isParkingUnitType, minPurchaseTokensFrom } from '../api/mappers';
 
 // Max photos per unit — mirrors Property.MaxImages on the backend.
 export const MAX_UNIT_IMAGES = 10;
@@ -179,8 +179,11 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
             }}
             className={inputClass}
           >
-            {Object.entries(UNIT_TYPE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+            {/* Плоский список без заголовков групп: типов осталось четыре, и заголовок над
+                парой «Гараж / Парковочное место» только рябил. Порядок берётся из UNIT_KINDS,
+                поэтому список идёт теми же тремя видами, что и кнопки над ним. */}
+            {UNIT_KINDS.flatMap((kind) => kind.types).map((value) => (
+              <option key={value} value={value}>{UNIT_TYPE_LABELS[value]}</option>
             ))}
           </select>
         </div>

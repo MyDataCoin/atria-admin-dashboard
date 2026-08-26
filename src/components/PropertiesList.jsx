@@ -8,6 +8,7 @@ import {
   mapUnitToCreateRequest,
   mapUnitToUpdateRequest,
   UNIT_TYPE_LABELS,
+  UNIT_KINDS,
   isParkingUnitType,
   formatParkingSpot,
 } from '../api/mappers';
@@ -2065,6 +2066,23 @@ export default function PropertiesList({
                       </span>
                     </div>
 
+                    {/* Кнопки НАД списком: список карточек длинный, и кнопки под ним уезжали
+                        за пределы экрана — чтобы добавить второе помещение, приходилось
+                        прокручивать всю форму до конца. */}
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {UNIT_KINDS.map((kind) => (
+                        <button
+                          key={kind.id}
+                          type="button"
+                          onClick={() => setFormUnits((prev) => [...prev, newUnit(kind.defaultType)])}
+                          className="flex items-center gap-1.5 border border-gray-300 text-gray-600 hover:border-[#A38D6D] hover:text-[#A38D6D] px-3 py-2 rounded text-[9px] uppercase font-bold tracking-widest transition-all cursor-pointer"
+                        >
+                          <Plus size={11} />
+                          {kind.buttonLabel}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="space-y-4">
                       {formUnits.map((unit, idx) => (
                         <UnitCard
@@ -2086,32 +2104,6 @@ export default function PropertiesList({
                       </p>
                     )}
 
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      <button
-                        type="button"
-                        onClick={() => setFormUnits((prev) => [...prev, newUnit('apartment')])}
-                        className="flex items-center gap-1.5 border border-[#A38D6D] text-[#A38D6D] hover:bg-[#A38D6D] hover:text-white px-3 py-2 rounded text-[9px] uppercase font-bold tracking-widest transition-all cursor-pointer"
-                      >
-                        <Plus size={11} />
-                        Добавить квартиру
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormUnits((prev) => [...prev, newUnit('garage')])}
-                        className="flex items-center gap-1.5 border border-gray-300 text-gray-600 hover:border-gray-500 px-3 py-2 rounded text-[9px] uppercase font-bold tracking-widest transition-all cursor-pointer"
-                      >
-                        <Plus size={11} />
-                        Добавить гараж
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormUnits((prev) => [...prev, newUnit('commercial')])}
-                        className="flex items-center gap-1.5 border border-gray-300 text-gray-600 hover:border-gray-500 px-3 py-2 rounded text-[9px] uppercase font-bold tracking-widest transition-all cursor-pointer"
-                      >
-                        <Plus size={11} />
-                        Добавить коммерческое
-                      </button>
-                    </div>
                   </div>
                 )}
 
