@@ -626,7 +626,8 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     totalTokens,
     minPurchaseTokens,
     currency: unit.currency || building?.currency || 'KGS',
-    propertyType: building?.type || null,
+    // Тип помещения, а не тип здания: гараж в жилом доме — не «жилая недвижимость».
+    propertyType: propertyTypeOfUnit(unit.unitType, building?.type),
     city: building?.city || null,
     yearBuilt: numOrNull(building?.completionYear),
     developer: building?.developer || null,
@@ -670,6 +671,10 @@ export function mapUnitToUpdateRequest(unit) {
     name: unit.name || null,
     description: unit.description || null,
     unitType: unit.unitType || null,
+    // Пересчитывается на каждом сохранении: так помещение, заведённое до этой правки с типом
+    // здания (гараж как «жилая недвижимость»), чинится обычным «Изменить», а смена типа помещения
+    // не оставляет за собой прежний вид недвижимости.
+    propertyType: propertyTypeOfUnit(unit.unitType, unit.type),
     unitNumber: unit.unitNumber || null,
     floorNumber: numOrNull(unit.floorNumber),
     ...parkingFields(unit),
@@ -715,6 +720,20 @@ export const UNIT_TYPE_LABELS = {
  * бэкенде и в UNIT_TYPE_LABELS, поэтому запись с ними, заведённая раньше или другим путём,
  * читается и подписывается как прежде.
  */
+/**
+ * «Тип недвижимости» самого помещения — жилая она или коммерческая.
+ *
+ * Раньше сюда копировался тип ЗДАНИЯ, и гараж в жилом доме приезжал на сайт как «Жилая
+ * недвижимость». Поле PropertyType лежит на помещении, а не на здании, то есть описывать должно
+ * именно помещение: гараж, паркинг и коммерция жилыми не являются, в каком бы доме они ни стояли.
+ */
+export function propertyTypeOfUnit(unitType, buildingType) {
+  if (unitType === 'apartment') return 'Жилая недвижимость';
+  if (unitType === 'commercial' || isParkingUnitType(unitType)) return 'Коммерческая недвижимость';
+  // Кладовая и прочее: своего однозначного вида нет — оставляем тип здания, как было.
+  return buildingType || null;
+}
+
 export const UNIT_KINDS = [
   {
     id: 'residential',
