@@ -8,6 +8,8 @@ export {
   SessionExpiredError,
   RefreshUnavailableError,
   onSessionEnded,
+  onForeignSession,
+  getForeignRole,
   decodeJwt,
   BASE_URL,
   request,

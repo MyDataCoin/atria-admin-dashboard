@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api, { decodeJwt, tokenStore, onSessionEnded } from './api';
+import api, { decodeJwt, tokenStore, onSessionEnded, onForeignSession, getForeignRole } from './api';
 import AdminApp from './AdminApp';
 import RealtorApp from './RealtorApp';
 import SuperAdminApp from './SuperAdminApp';
@@ -7,7 +7,7 @@ import PasswordInput from './components/PasswordInput';
 import BlockedScreen from './components/BlockedScreen';
 import ForcePasswordChange from './components/ForcePasswordChange';
 
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, ShieldAlert } from 'lucide-react';
 
 // --- Role detection --------------------------------------------------------
 // Both admin and realtor log in against the same backend but through different
@@ -95,6 +95,9 @@ export default function App() {
   const [role, setRole] = useState(() => roleFromToken(tokenStore.access));
   const [currentUser, setCurrentUser] = useState(() => userFromToken(tokenStore.access));
   const [restoringSession, setRestoringSession] = useState(!tokenStore.isAuthenticated);
+  // Сессия есть, но она инвесторская — общая refresh-кука зоны .atria.kg. Отдельное состояние, а не
+  // форма входа: человек уже вошёл, просто не в тот кабинет, и «войдите» ему сказать нечего.
+  const [foreignSession, setForeignSession] = useState(() => getForeignRole() || '');
 
   useEffect(() => {
     if (!restoringSession) return undefined;
@@ -110,6 +113,7 @@ export default function App() {
       }
 
       if (cancelled) return;
+      if (!restored) setForeignSession(getForeignRole() || '');
       setRestoringSession(false);
     });
 
@@ -127,6 +131,18 @@ export default function App() {
       onSessionEnded(() => {
         setCurrentUser(null);
         setRole(null);
+      }),
+    [],
+  );
+
+  // Инвесторский вход в соседней вкладке перезаписывает общую куку зоны. Замечаем это сразу, а не
+  // ждём, пока панель начнёт отвечать 403 на каждый раздел.
+  useEffect(
+    () =>
+      onForeignSession((role) => {
+        setCurrentUser(null);
+        setRole(null);
+        setForeignSession(role || 'investor');
       }),
     [],
   );
@@ -258,6 +274,39 @@ export default function App() {
         reason={blockedUser.reason}
         onBack={() => setBlockedUser(null)}
       />
+    );
+  }
+
+  // --- Вошли, но кабинетом инвестора ---------------------------------------
+  // Refresh-кука общая на зону .atria.kg, поэтому вход в кабинете инвестора в соседней вкладке
+  // отдаёт сюда исправный токен чужой роли. Раньше он молча принимался: панель рисовалась целиком,
+  // а каждый раздел отвечал 403. Отдельный экран вместо формы входа — человек уже вошёл.
+  if (foreignSession) {
+    return (
+      <div className="min-h-screen bg-[#111111] flex flex-col items-center justify-center gap-4 px-6 text-center paper-grain">
+        <ShieldAlert size={30} className="text-amber-400" />
+        <h1 className="text-xl font-bold text-white">Это панель персонала</h1>
+        <p className="text-sm text-neutral-400 max-w-sm">
+          Сейчас в браузере активна сессия инвестора, а этот раздел — рабочее место персонала.
+          Выйдите из кабинета инвестора или откройте панель в другом браузере либо в окне инкогнито.
+        </p>
+        <button
+          type="button"
+          onClick={async () => {
+            // Выход завершает общую сессию зоны — другой роли здесь всё равно взяться неоткуда.
+            try {
+              await api.auth.logout();
+            } catch {
+              /* сессия могла кончиться сама; экран входа всё равно правильный итог */
+            }
+            tokenStore.clear();
+            setForeignSession('');
+          }}
+          className="px-4 py-2 text-sm border border-white/20 text-white hover:bg-white/5 rounded-sm"
+        >
+          Выйти и войти как сотрудник
+        </button>
+      </div>
     );
   }
 

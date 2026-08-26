@@ -75,6 +75,9 @@ if (authChannel) {
     const msg = event.data;
     if (!msg) return;
     if (msg.type === 'tokens' && msg.accessToken && msg.expiresAt > accessExpiresAt) {
+      // Та же проверка роли, что и в tokenStore.set: вкладка-отправитель могла быть открыта под
+      // инвесторской сессией, и принимать её на веру — значит обойти проверку через BroadcastChannel.
+      if (isForeignRole(roleOf(msg.accessToken))) return;
       applyTokens(msg.accessToken, msg.expiresAt);
     } else if (msg.type === 'ended') {
       clearTokens();
@@ -89,6 +92,59 @@ function parseExpiry(expiresAtUtc) {
   const iso = /([Zz]|[+-]\d{2}:?\d{2})$/.test(expiresAtUtc) ? expiresAtUtc : `${expiresAtUtc}Z`;
   const at = Date.parse(iso);
   return Number.isNaN(at) ? 0 : at;
+}
+
+/**
+ * Роль, зашитая в access-токен, в нижнем регистре ('admin', 'superadmin', 'realtor', 'investor').
+ *
+ * Подпись не проверяем намеренно: проверять её здесь нечем, решение всё равно принимает сервер.
+ * Клиенту роль нужна ровно для одного — понять, ЧЬЯ это сессия.
+ */
+function roleOf(token) {
+  return (decodeJwt(token)?.role || '').toString().toLowerCase();
+}
+
+/**
+ * Админка — рабочее место персонала, и инвесторскую сессию она принимать не должна.
+ *
+ * Refresh-кука выписана на `.atria.kg` и общая для сайта, кабинета инвестора и этого домена — так и
+ * задумано, один вход на всю зону. Но вход ИНВЕСТОРА перезаписывает ту же куку, и открытая рядом
+ * админка молча восстанавливала из неё чужую сессию: токен свежий и рабочий, поэтому запрос на
+ * refresh проходил, панель считала себя авторизованной — и дальше каждый запрос отвечал 403.
+ * Со стороны это выглядит как «токен из админки подкинуло в инвесторку» и наоборот. Симметричная
+ * проверка есть в кабинете инвестора (REQUIRED_ROLE = 'investor'); это её зеркало.
+ */
+function isForeignRole(role) {
+  return role.includes('investor');
+}
+
+// Роль чужой сессии, чтобы экран мог её назвать. Пусто, когда всё в порядке.
+let foreignRole = '';
+
+/** Роль чужой сессии ('investor') или '' — сессия своя либо её нет. */
+export function getForeignRole() {
+  return foreignRole;
+}
+
+// Слушатели «сессия есть, но она не персонала» — им показывают отдельный экран, а не форму входа:
+// человек вошёл, просто не туда, и предлагать ему «войдите» бессмысленно.
+const foreignSessionHandlers = new Set();
+
+/** Подписка на «сессия принадлежит другой роли». Возвращает функцию отписки. */
+export function onForeignSession(handler) {
+  foreignSessionHandlers.add(handler);
+  return () => foreignSessionHandlers.delete(handler);
+}
+
+function notifyForeignSession(role) {
+  foreignRole = role;
+  foreignSessionHandlers.forEach((h) => {
+    try {
+      h(role);
+    } catch {
+      /* one broken listener must not stop the others */
+    }
+  });
 }
 
 function applyTokens(token, expiresAt) {
@@ -130,9 +186,21 @@ export const tokenStore = {
     return accessToken;
   },
   set({ accessToken: token, expiresAtUtc }) {
-    if (!token) return;
+    if (!token) return false;
+
+    // Инвесторская сессия (см. isForeignRole): токен не сохраняем — иначе админка выглядит рабочей
+    // и ломается запрос за запросом на 403.
+    const role = roleOf(token);
+    if (isForeignRole(role)) {
+      clearTokens();
+      notifyForeignSession(role);
+      return false;
+    }
+
+    foreignRole = '';
     applyTokens(token, parseExpiry(expiresAtUtc) || Date.now() + 10 * 60_000);
     authChannel?.postMessage({ type: 'tokens', accessToken, expiresAt: accessExpiresAt });
+    return true;
   },
   clear({ broadcast = true } = {}) {
     clearTokens();
@@ -270,7 +338,13 @@ async function doRefresh() {
     }
 
     const tokens = await res.json();
-    tokenStore.set(tokens);
+    // Кука общая на зону, поэтому обновление МОЖЕТ вернуть исправный токен чужой роли — инвесторский.
+    // tokenStore.set такой не сохраняет; вернуть его отсюда всё равно означало бы отдать вызвавшему
+    // запросу чужой Bearer и получить 403 вместо честного «это не ваша сессия».
+    if (!tokenStore.set(tokens)) {
+      notifySessionEnded();
+      throw new SessionExpiredError();
+    }
     return tokens.accessToken;
   }
 
