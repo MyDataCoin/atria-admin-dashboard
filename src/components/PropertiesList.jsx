@@ -25,6 +25,7 @@ import {
   PAYOUT_FREQUENCIES as PAYOUT_FREQUENCY_OPTIONS,
   DOCUMENT_CATEGORIES,
   DOCUMENT_CATEGORY_LABELS,
+  CONSTRUCTION_STAGE_LABELS,
 } from '../api/mappers';
 import PlacementPanel from './PlacementPanel';
 import { safeUrl } from '../utils';
@@ -465,6 +466,14 @@ export default function PropertiesList({
       encumbranceCheckedAtUtc: prop.encumbranceCheckedAtUtc || null,
       payoutFrequency: prop.payoutFrequency || '',
       locationDescription: prop.locationDescription || '',
+      // Участок и кадастр: null из API -> '' для контролируемых полей.
+      landAreaHectares: prop.landAreaHectares ?? '',
+      landPlotCode: prop.landPlotCode || '',
+      cadastralNumber: prop.cadastralNumber || '',
+      constructionStage: prop.constructionStage || '',
+      // <input type="date"> принимает только YYYY-MM-DD, ISO с временем он молча отвергает.
+      plannedCompletionDate: (prop.plannedCompletionDate || '').slice(0, 10),
+      readinessPercent: prop.readinessPercent ?? '',
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
     });
     setFormUnits([]);
@@ -2363,6 +2372,69 @@ export default function PropertiesList({
                             <option key={value} value={value}>{label}</option>
                           ))}
                         </select>
+                      </div>
+                    </div>
+
+                    {/* Участок и кадастр — то, чем объект опознаётся и сверяется с Кадастром. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Идент. код участка</label>
+                        {/* Код — у участка, кадастровый номер — у построенного объекта. */}
+                        <input
+                          type="text" placeholder="1-04-13-0033-0135"
+                          value={formData.landPlotCode ?? ''}
+                          onChange={(e) => setFormData({ ...formData, landPlotCode: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Кадастровый номер</label>
+                        <input
+                          type="text" placeholder="есть у построенного объекта"
+                          value={formData.cadastralNumber ?? ''}
+                          onChange={(e) => setFormData({ ...formData, cadastralNumber: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Площадь участка, га</label>
+                        <input
+                          type="number" min="0" step="0.0001" placeholder="0.72"
+                          value={formData.landAreaHectares ?? ''}
+                          onChange={(e) => setFormData({ ...formData, landAreaHectares: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Стадия</label>
+                        <select
+                          value={formData.constructionStage ?? ''}
+                          onChange={(e) => setFormData({ ...formData, constructionStage: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                        >
+                          <option value="">Не указана</option>
+                          {Object.entries(CONSTRUCTION_STAGE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Плановый ввод</label>
+                        <input
+                          type="date"
+                          value={formData.plannedCompletionDate ?? ''}
+                          onChange={(e) => setFormData({ ...formData, plannedCompletionDate: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Готовность, %</label>
+                        <input
+                          type="number" min="0" max="100" step="1" placeholder="0"
+                          value={formData.readinessPercent ?? ''}
+                          onChange={(e) => setFormData({ ...formData, readinessPercent: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
                       </div>
                     </div>
 

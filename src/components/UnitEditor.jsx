@@ -6,6 +6,7 @@ import {
   isParkingUnitType,
   minPurchaseTokensFrom,
   PAYOUT_FREQUENCIES,
+  CONSTRUCTION_STAGE_LABELS,
 } from '../api/mappers';
 
 // Max photos per unit — mirrors Property.MaxImages on the backend.
@@ -85,6 +86,14 @@ export function newUnit(unitType = 'apartment') {
     payoutFrequency: '',
     // Блок о районе: инфраструктура, транспорт, окружение.
     locationDescription: '',
+    // Участок и кадастр. Идент. код — у участка, кадастровый номер — у построенного объекта:
+    // у выпуска на земле под проектированием есть только первое.
+    landAreaHectares: '',
+    landPlotCode: '',
+    cadastralNumber: '',
+    constructionStage: '',
+    plannedCompletionDate: '',
+    readinessPercent: '',
     description: '',
     rooms: (ROOM_PRESETS[unitType] || []).map((name) => ({ name, areaSqM: '' })),
     tokenPrice: 1000,
@@ -496,6 +505,77 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
               вручную не нужно, но проверьте, можно ли его вообще размещать.
             </p>
           )}
+        </div>
+      </div>
+
+      {/* Участок, кадастр и готовность. Это то, чем объект опознаётся и сверяется с Кадастром,
+          поэтому блок отдельный, а не строка среди характеристик. */}
+      <div className="border-t border-gray-200 pt-3">
+        <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+          Участок и кадастр
+        </span>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+          <div>
+            <label className={labelClass}>Идент. код участка</label>
+            {/* У участка — идентификационный код, у построенного объекта — кадастровый номер.
+                Это разные вещи, и у выпуска на земле под проектированием есть только первое. */}
+            <input
+              type="text" placeholder="1-04-13-0033-0135"
+              value={unit.landPlotCode ?? ''}
+              onChange={(e) => patch({ landPlotCode: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Кадастровый номер</label>
+            <input
+              type="text" placeholder="есть у построенного объекта"
+              value={unit.cadastralNumber ?? ''}
+              onChange={(e) => patch({ cadastralNumber: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Площадь участка, га</label>
+            {/* Гектары земли, а не площадь пола: делить их на доли нельзя. */}
+            <input
+              type="number" min="0" step="0.0001" placeholder="0.72"
+              value={unit.landAreaHectares ?? ''}
+              onChange={(e) => patch({ landAreaHectares: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Стадия</label>
+            <select
+              value={unit.constructionStage ?? ''}
+              onChange={(e) => patch({ constructionStage: e.target.value })}
+              className={inputClass}
+            >
+              <option value="">Не указана</option>
+              {Object.entries(CONSTRUCTION_STAGE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>Плановый ввод</label>
+            <input
+              type="date"
+              value={unit.plannedCompletionDate ?? ''}
+              onChange={(e) => patch({ plannedCompletionDate: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Готовность, %</label>
+            <input
+              type="number" min="0" max="100" step="1" placeholder="0"
+              value={unit.readinessPercent ?? ''}
+              onChange={(e) => patch({ readinessPercent: e.target.value })}
+              className={`${inputClass} font-mono`}
+            />
+          </div>
         </div>
       </div>
 

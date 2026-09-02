@@ -616,13 +616,9 @@ export function mapPropertyToCreateRequest(form) {
     roomCount: numOrNull(form.roomCount),
     totalAreaSqM: numOrNull(form.totalAreaSqM),
     rooms: mapRoomsToApi(form.rooms),
-    // Участок и стройка.
-    landAreaHectares: numOrNull(form.landAreaHectares),
-    landPlotCode: form.landPlotCode || null,
-    cadastralNumber: form.cadastralNumber || null,
-    constructionStage: form.constructionStage || null,
-    plannedCompletionDate: form.plannedCompletionDate || null,
-    readinessPercent: numOrNull(form.readinessPercent),
+    // Участок, кадастр и стройка — тем же хелпером, что и в помещениях: два списка полей
+    // разошлись бы при первой же правке.
+    ...landAndCadastreFields(form),
     payoutFrequency: form.payoutFrequency || null,
     ...encumbranceFields(form),
     ...characteristicFields(form),
@@ -731,6 +727,7 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     // Характеристики помещения берём с помещения, а не со здания: полезная площадь и назначение
     // по документам у гаража свои, даже когда класс и отопление наследуются от дома.
     ...characteristicFields(unit),
+    ...landAndCadastreFields(unit),
   };
 }
 
@@ -827,6 +824,28 @@ function characteristicFields(form) {
   };
 }
 
+/**
+ * Участок, кадастр и строительная готовность — то, чем объект опознаётся и сверяется с Кадастром.
+ *
+ * Идентификационный код участка и кадастровый номер держатся раздельно намеренно: у участка есть
+ * код, у построенного объекта — номер, и у выпуска на земле под проектированием есть только
+ * первое. Слить их в одно поле значит потерять, о чём именно идёт речь.
+ *
+ * Гектары не смешиваются с `totalAreaSqM`: это площадь земли, а не продаваемая площадь пола, и
+ * делить её на доли нельзя.
+ */
+function landAndCadastreFields(form) {
+  const text = (v) => (v != null && String(v).trim() !== '' ? String(v).trim() : null);
+  return {
+    landAreaHectares: numOrNull(form.landAreaHectares),
+    landPlotCode: text(form.landPlotCode),
+    cadastralNumber: text(form.cadastralNumber),
+    constructionStage: form.constructionStage || null,
+    plannedCompletionDate: form.plannedCompletionDate || null,
+    readinessPercent: numOrNull(form.readinessPercent),
+  };
+}
+
 /** Garage / parking space — located by section-row-spot rather than by rooms. */
 export function isParkingUnitType(unitType) {
   return unitType === 'garage' || unitType === 'parking_space';
@@ -859,6 +878,7 @@ export function mapUnitToUpdateRequest(unit) {
     payoutFrequency: unit.payoutFrequency || null,
     ...encumbranceFields(unit),
     ...characteristicFields(unit),
+    ...landAndCadastreFields(unit),
   };
 }
 
