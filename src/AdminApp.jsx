@@ -454,6 +454,7 @@ export default function AdminApp({ currentUser, onLogout }) {
               tickets={tickets}
               setTickets={setTickets}
               investors={investors}
+              properties={properties}
               onRefreshTickets={loadTickets}
               onAddLog={handleAddAuditLog}
             />

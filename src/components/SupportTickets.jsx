@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   MessageSquare,
   Search,
@@ -41,6 +41,9 @@ export default function SupportTickets({
   tickets,
   setTickets,
   investors,
+  // Каталог для фильтра по объекту и подписи в карточке тикета. Может прийти пустым —
+  // фильтр тогда просто не показывается, а тикеты остаются доступны.
+  properties = [],
   onRefreshTickets,
   onAddLog
 }) {
@@ -49,6 +52,12 @@ export default function SupportTickets({
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all'); // all, Open, Answered, Resolved
   const [filterCategory, setFilterCategory] = useState('all');
+  const [filterProperty, setFilterProperty] = useState('all');
+  // id -> название: карточка тикета знает только id объекта, а показать нужно имя.
+  const propertyNameById = useMemo(
+    () => new Map((properties ?? []).map((p) => [p.id, p.name])),
+    [properties],
+  );
   
   // Create ticket state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -106,8 +115,16 @@ export default function SupportTickets({
     
     const matchesStatus = filterStatus === 'all' ? true : t.status === filterStatus;
     const matchesCategory = filterCategory === 'all' ? true : t.category === filterCategory;
+    // 'none' — обращения не про объект: их отдельно видно, чтобы они не терялись между
+    // выпусками, когда поддержка разбирает обращения по объектам.
+    const matchesProperty =
+      filterProperty === 'all'
+        ? true
+        : filterProperty === 'none'
+          ? !t.propertyId
+          : t.propertyId === filterProperty;
 
-    return matchesSearch && matchesStatus && matchesCategory;
+    return matchesSearch && matchesStatus && matchesCategory && matchesProperty;
   });
 
   // Handle reply submission. For API-backed tickets the message is persisted via
@@ -378,6 +395,24 @@ export default function SupportTickets({
                   <option value="Юридические вопросы">Юридические</option>
                 </select>
               </div>
+
+              {/* Маршрутизация по объекту: специалист, ведущий объект, отбирает свои обращения. */}
+              {properties.length > 0 && (
+                <div>
+                  <label className="block text-[8px] font-mono uppercase tracking-wider text-gray-400 font-bold mb-1">Объект</label>
+                  <select
+                    value={filterProperty}
+                    onChange={(e) => setFilterProperty(e.target.value)}
+                    className="w-full p-1.5 border border-gray-200 bg-white focus:outline-none focus:border-[#A38D6D] text-gray-700"
+                  >
+                    <option value="all">Все объекты</option>
+                    <option value="none">Без объекта</option>
+                    {properties.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -463,6 +498,18 @@ export default function SupportTickets({
                         <span className="truncate">{t.investorName}</span>
                       )}
                     </div>
+
+                    {/* Объект обращения — видно прямо в списке, чтобы специалист узнавал свои
+                        тикеты без открытия каждого. Имя ищем в каталоге; если объекта там уже
+                        нет (снят с витрины), тикет всё равно помечен как «по объекту». */}
+                    {t.propertyId && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Building size={10} className="text-[#A38D6D] shrink-0" />
+                        <span className="text-[10px] text-gray-500 truncate">
+                          {propertyNameById.get(t.propertyId) || 'Объект не в каталоге'}
+                        </span>
+                      </div>
+                    )}
 
                     {lastMsg && (
                       <p className={`text-[10px] mt-2 line-clamp-1 italic ${

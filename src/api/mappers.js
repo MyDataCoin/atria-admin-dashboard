@@ -398,6 +398,9 @@ export function mapTicketFromApi(t) {
     investorEmail: '—', // phone-only backend; no email on tickets
     subject: t.subject || '',
     category: t.category || '',
+    // Объект, о котором вопрос. null — обращение про платформу, а не про конкретный выпуск:
+    // по нему поддержка направляет тикет специалисту, который ведёт этот объект.
+    propertyId: t.propertyId || null,
     priority: 'Medium', // not modelled on the backend; UI-only
     status: mapTicketStatus(t.status),
     createdAt: fmtTs(t.createdAtUtc),
