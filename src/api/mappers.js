@@ -127,6 +127,9 @@ export function mapPropertyFromApi(p) {
     elevator: p.elevator || '',
     security: p.security || '',
     parking: p.parking || '',
+    // Блок о районе: инфраструктура, транспорт, окружение. Отдельно от description —
+    // описание продаёт сам объект, а это про то, что вокруг него.
+    locationDescription: p.locationDescription || '',
 
     // Земельный участок и стройка. Гектары участка держим отдельно от totalAreaSqM: это площадь
     // земли, а не продаваемая площадь пола, и делить её на доли нельзя.
@@ -795,6 +798,7 @@ function characteristicFields(form) {
     elevator: text(form.elevator),
     security: text(form.security),
     parking: text(form.parking),
+    locationDescription: text(form.locationDescription),
   };
 }
 

@@ -288,6 +288,14 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
                 </div>
               )}
 
+              {/* Район — отдельным блоком от описания: это про то, что вокруг объекта. */}
+              {property.locationDescription && (
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-2">Район и окружение</h4>
+                  <p className="text-sm text-gray-600 leading-relaxed">{property.locationDescription}</p>
+                </div>
+              )}
+
               {property.description && (
                 <div>
                   <h4 className="text-sm font-serif font-bold text-gray-900 mb-2">Описание объекта</h4>

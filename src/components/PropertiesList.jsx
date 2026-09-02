@@ -460,6 +460,7 @@ export default function PropertiesList({
           : null,
       encumbranceCheckedAtUtc: prop.encumbranceCheckedAtUtc || null,
       payoutFrequency: prop.payoutFrequency || '',
+      locationDescription: prop.locationDescription || '',
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
     });
     setFormUnits([]);
@@ -2286,6 +2287,16 @@ export default function PropertiesList({
                           />
                         </div>
                       ))}
+                      <div className="sm:col-span-3">
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Район и окружение</label>
+                        <textarea
+                          rows={3}
+                          placeholder="Южная часть города, рядом центральные инфраструктуры, транспортная доступность…"
+                          value={formData.locationDescription ?? ''}
+                          onChange={(e) => setFormData({ ...formData, locationDescription: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white resize-y"
+                        />
+                      </div>
                       <div>
                         <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Периодичность выплат</label>
                         <select

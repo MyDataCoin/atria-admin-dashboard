@@ -83,6 +83,8 @@ export function newUnit(unitType = 'apartment') {
     // Периодичность выплат. Пусто — не задана: до ввода в эксплуатацию выпуск всё равно
     // ничего не платит, и обещать частоту раньше времени нечестно.
     payoutFrequency: '',
+    // Блок о районе: инфраструктура, транспорт, окружение.
+    locationDescription: '',
     description: '',
     rooms: (ROOM_PRESETS[unitType] || []).map((name) => ({ name, areaSqM: '' })),
     tokenPrice: 1000,
@@ -439,6 +441,18 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
               />
             </div>
           ))}
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Район и окружение</label>
+            {/* Абзац, а не строка: сюда идёт инфраструктура, транспорт и что рядом. Отдельно
+                от описания объекта — это про местоположение, а не про сам объект. */}
+            <textarea
+              rows={3}
+              placeholder="Южная часть города, рядом центральные инфраструктуры, транспортная доступность…"
+              value={unit.locationDescription ?? ''}
+              onChange={(e) => patch({ locationDescription: e.target.value })}
+              className={`${inputClass} resize-y`}
+            />
+          </div>
           <div>
             <label className={labelClass}>Периодичность выплат</label>
             {/* Пока объект не введён в эксплуатацию, выпуск не платит независимо от того,
