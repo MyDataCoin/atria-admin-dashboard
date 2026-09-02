@@ -120,8 +120,11 @@ export default function LawyerApp({ currentUser, onLogout }) {
     }
   };
 
+  // Оболочка один в один с AdminApp: сайдбар фиксированный шириной 72, поэтому отступ основной
+  // колонки обязан совпадать. При lg:pl-64 контент уезжал под панель, а справа оставалась белая
+  // полоса вместо фона страницы.
   return (
-    <div className="min-h-screen bg-[#FAFAF8]">
+    <div className="min-h-screen bg-[#FDFDFB] flex font-sans text-gray-800 paper-grain relative select-none">
       <Sidebar
         currentSection={currentSection}
         onSectionChange={(id) => {
@@ -136,10 +139,10 @@ export default function LawyerApp({ currentUser, onLogout }) {
         title="Юридический"
       />
 
-      <div className="lg:pl-64">
+      <div className="flex-1 flex flex-col lg:pl-72 min-w-0 transition-all duration-300">
         <Header onMenuToggle={() => setSidebarOpen(!sidebarOpen)} adminUser={currentUser} />
 
-        <main className="p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-6 lg:p-10 max-w-7xl w-full mx-auto space-y-6 overflow-y-auto">
           {propertiesError && (
             <div className="mb-4 border border-amber-200 bg-amber-50 text-amber-800 text-xs rounded-sm px-3.5 py-2.5">
               {propertiesError}
