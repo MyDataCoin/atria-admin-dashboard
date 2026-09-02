@@ -104,6 +104,20 @@ export function mapPropertyFromApi(p) {
     // that does not add up. The server deliberately does not reject a mismatch.
     roomsAreaSqM: p.roomsAreaSqM ?? 0,
 
+    // Земельный участок и стройка. Гектары участка держим отдельно от totalAreaSqM: это площадь
+    // земли, а не продаваемая площадь пола, и делить её на доли нельзя.
+    landAreaHectares: p.landAreaHectares ?? null,
+    landPlotCode: p.landPlotCode || '',
+    cadastralNumber: p.cadastralNumber || '',
+    // Строительная готовность — независима от status, который про размещение.
+    constructionStage:
+      p.constructionStage && p.constructionStage !== 'unspecified' ? p.constructionStage : '',
+    plannedCompletionDate: p.plannedCompletionDate || null,
+    readinessPercent: p.readinessPercent ?? null,
+    // Проверка Кадастра. null — «не проверяли», и это не то же самое, что «обременений нет».
+    isFreeOfEncumbrances: p.isFreeOfEncumbrances ?? null,
+    encumbranceCheckedAtUtc: p.encumbranceCheckedAtUtc || null,
+
     _source: 'api',
   };
 }
@@ -539,6 +553,13 @@ export function mapPropertyToCreateRequest(form) {
     roomCount: numOrNull(form.roomCount),
     totalAreaSqM: numOrNull(form.totalAreaSqM),
     rooms: mapRoomsToApi(form.rooms),
+    // Участок и стройка.
+    landAreaHectares: numOrNull(form.landAreaHectares),
+    landPlotCode: form.landPlotCode || null,
+    cadastralNumber: form.cadastralNumber || null,
+    constructionStage: form.constructionStage || null,
+    plannedCompletionDate: form.plannedCompletionDate || null,
+    readinessPercent: numOrNull(form.readinessPercent),
   };
 }
 
@@ -704,6 +725,18 @@ export const UNIT_TYPE_LABELS = {
   // именем, а не пустой строкой.
   storage: 'Кладовая',
   other: 'Помещение',
+  land_plot: 'Земельный участок',
+};
+
+/**
+ * Стадия строительства. Отдельно от статуса размещения: выпуск может быть открыт, пока на
+ * участке ещё только проект — именно так устроен первый объект.
+ */
+export const CONSTRUCTION_STAGE_LABELS = {
+  land_only: 'Земельный участок',
+  design: 'Проектирование',
+  under_construction: 'Строительство',
+  commissioned: 'Введён в эксплуатацию',
 };
 
 /**
@@ -730,6 +763,7 @@ export const UNIT_TYPE_LABELS = {
 export function propertyTypeOfUnit(unitType, buildingType) {
   if (unitType === 'apartment') return 'Жилая недвижимость';
   if (unitType === 'commercial' || isParkingUnitType(unitType)) return 'Коммерческая недвижимость';
+  if (unitType === 'land_plot') return 'Земельный участок';
   // Кладовая и прочее: своего однозначного вида нет — оставляем тип здания, как было.
   return buildingType || null;
 }

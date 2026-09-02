@@ -4,6 +4,7 @@ import { Building, FileText, MapPin } from 'lucide-react';
 import api from '../api';
 import {
   UNIT_TYPE_LABELS,
+  CONSTRUCTION_STAGE_LABELS,
   mapHolderFromInvestment,
   isParkingUnitType,
   formatParkingSpot,
@@ -24,6 +25,14 @@ const formatTokens = (count) => (count == null ? '—' : Number(count).toLocaleS
 
 const formatMoney = (amount, currencyCode) =>
   amount == null ? '—' : `${Math.round(Number(amount)).toLocaleString('ru-RU')} ${currencyCode || ''}`.trim();
+
+// Даты с бэкенда приходят в ISO/UTC. Показываем только дату: плановый ввод и дата проверки
+// Кадастра — это дни, а не моменты, и время суток здесь ничего не значит.
+const formatDate = (value) => {
+  if (!value) return '—';
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('ru-RU');
+};
 
 function Metric({ label, value }) {
   return (
@@ -177,7 +186,25 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {activeTab === 'info' && (
             <div className="space-y-7">
-              {property.unitType && (
+              {/* Земельный участок — не помещение: ни номера, ни этажа, ни комнатности у него
+                  нет, и та же сетка показала бы четыре прочерка. Своя раскладка. */}
+              {property.unitType === 'land_plot' && (
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Земельный участок</h4>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <Metric label="Тип" value={UNIT_TYPE_LABELS.land_plot} />
+                    <Metric
+                      label="Площадь участка"
+                      value={property.landAreaHectares != null ? `${Number(property.landAreaHectares)} га` : '—'}
+                    />
+                    <Metric label="Идент. код участка" value={property.landPlotCode || '—'} />
+                    <Metric label="Кадастровый номер" value={property.cadastralNumber || '—'} />
+                  </div>
+                </div>
+              )}
+
+              {property.unitType && property.unitType !== 'land_plot' && (
                 <div>
                   <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Помещение</h4>
 
@@ -241,6 +268,41 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Строительная готовность. Отдельный блок, а не строка в характеристиках: статус
+                  объекта в шапке — про размещение, а это про то, что физически стоит на участке. */}
+              {(property.constructionStage || property.plannedCompletionDate
+                || property.readinessPercent != null || property.isFreeOfEncumbrances != null) && (
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Готовность объекта</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <Metric
+                      label="Стадия"
+                      value={CONSTRUCTION_STAGE_LABELS[property.constructionStage] || '—'}
+                    />
+                    <Metric
+                      label="Плановый ввод"
+                      value={formatDate(property.plannedCompletionDate)}
+                    />
+                    <Metric
+                      label="Готовность"
+                      value={property.readinessPercent != null ? `${property.readinessPercent}%` : '—'}
+                    />
+                    {/* null — «не проверяли». Это не то же самое, что «обременений нет», и
+                        подписывается иначе. */}
+                    <Metric
+                      label="Обременения"
+                      value={
+                        property.isFreeOfEncumbrances == null
+                          ? 'Не проверялось'
+                          : property.isFreeOfEncumbrances
+                            ? `Нет${property.encumbranceCheckedAtUtc ? ` (${formatDate(property.encumbranceCheckedAtUtc)})` : ''}`
+                            : `Есть${property.encumbranceCheckedAtUtc ? ` (${formatDate(property.encumbranceCheckedAtUtc)})` : ''}`
+                      }
+                    />
+                  </div>
                 </div>
               )}
 
