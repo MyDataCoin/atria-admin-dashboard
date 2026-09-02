@@ -129,6 +129,23 @@ export const properties = {
   // The public site must block "buy" while paused. PROPOSED — backend must add
   // POST /properties/{id}/pause and expose the flag on PropertyDto (see handoff notes).
   pause: (id) => request(`/properties/${id}/pause`, { method: 'POST' }),
+  // Admin only. Sets the placement window and the sum to raise:
+  // body { opensAtUtc?, closesAtUtc?, targetAmount? }. Only the supplied fields change. The dates
+  // are a schedule — a backend sweep opens and closes the offering on them, nobody presses publish
+  // at midnight. 400 when the window closes before it opens.
+  schedulePlacement: (id, body) =>
+    request(`/properties/${id}/placement`, { method: 'POST', body }),
+  // Admin only. Pushes the closing date back: body { newClosesAtUtc, reason }. One of the two
+  // answers to a placement short of its target; the reason is journalled and the extensions are
+  // counted. 409 when the new date is not later than the current one.
+  extendPlacement: (id, body) =>
+    request(`/properties/${id}/placement/extend`, { method: 'POST', body }),
+  // Admin only. The other answer: declares the placement unsubscribed and unwinds it — every
+  // application voided, every share back on sale, everyone who was placed owed their money.
+  // body { reason }. Irreversible; the issue ends up completed (NOT invalidated — nothing here
+  // was unlawful, the offering just did not fill).
+  closePlacementUnsubscribed: (id, body) =>
+    request(`/properties/${id}/placement/unsubscribed`, { method: 'POST', body }),
   // Admin only. Resumes a paused offering (salesPaused=false). PROPOSED — see handoff notes.
   resume: (id) => request(`/properties/${id}/resume`, { method: 'POST' }),
   // Admin only. Uploads one image (max 10/property). Returns { id, url }.

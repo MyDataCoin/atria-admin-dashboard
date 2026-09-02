@@ -271,6 +271,48 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
                 </div>
               )}
 
+              {/* Окно размещения. Даты — расписание, по которому бэкенд сам открывает и закрывает
+                  продажи, поэтому показываем их рядом со сбором: администратору нужно видеть
+                  «сколько собрано и сколько осталось времени» одним взглядом. */}
+              {(property.placementOpensAtUtc || property.placementClosesAtUtc
+                || property.targetAmount != null) && (
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Размещение</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <Metric label="Открытие" value={formatDate(property.placementOpensAtUtc)} />
+                    <Metric label="Закрытие" value={formatDate(property.placementClosesAtUtc)} />
+                    <Metric
+                      label="Цель"
+                      value={
+                        property.targetAmount != null
+                          ? formatMoney(property.targetAmount, property.currency)
+                          : '—'
+                      }
+                    />
+                    <Metric
+                      label="Собрано"
+                      value={formatMoney(property.raisedAmount, property.currency)}
+                    />
+                  </div>
+
+                  {/* Недостигнутая цель — это решение, которое кто-то должен принять: продлить
+                      или вернуть деньги. Поэтому она подписана, а не выведена цветом полосы. */}
+                  {property.targetAmount != null && !property.isTargetMet && (
+                    <p className="mt-3 text-[11px] font-bold text-amber-700">
+                      Цель не достигнута — требуется решение: продление или возврат
+                    </p>
+                  )}
+
+                  {property.placementExtensionCount > 0 && (
+                    <p className="mt-2 text-[11px] text-gray-600">
+                      Размещение продлевалось{' '}
+                      <span className="font-bold text-gray-900">{property.placementExtensionCount}</span>{' '}
+                      раз(а)
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Строительная готовность. Отдельный блок, а не строка в характеристиках: статус
                   объекта в шапке — про размещение, а это про то, что физически стоит на участке. */}
               {(property.constructionStage || property.plannedCompletionDate

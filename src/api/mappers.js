@@ -118,6 +118,15 @@ export function mapPropertyFromApi(p) {
     isFreeOfEncumbrances: p.isFreeOfEncumbrances ?? null,
     encumbranceCheckedAtUtc: p.encumbranceCheckedAtUtc || null,
 
+    // Окно размещения. Даты — расписание: бэкенд сам открывает и закрывает продажи по ним.
+    placementOpensAtUtc: p.placementOpensAtUtc || null,
+    placementClosesAtUtc: p.placementClosesAtUtc || null,
+    targetAmount: p.targetAmount ?? null,
+    raisedAmount: p.raisedAmount ?? 0,
+    // true и когда цели нет: выпуск, не поставивший цель, не может её не достичь.
+    isTargetMet: p.isTargetMet !== false,
+    placementExtensionCount: p.placementExtensionCount ?? 0,
+
     _source: 'api',
   };
 }
