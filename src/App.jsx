@@ -3,6 +3,8 @@ import api, { decodeJwt, tokenStore, onSessionEnded, onForeignSession, getForeig
 import AdminApp from './AdminApp';
 import RealtorApp from './RealtorApp';
 import SuperAdminApp from './SuperAdminApp';
+import AccountantApp from './AccountantApp';
+import LawyerApp from './LawyerApp';
 import PasswordInput from './components/PasswordInput';
 import BlockedScreen from './components/BlockedScreen';
 import ForcePasswordChange from './components/ForcePasswordChange';
@@ -26,8 +28,16 @@ function roleFromToken(token) {
   // инвестора отдавал сюда рабочий токен. Панель рисовалась целиком, а данные не приходили —
   // каждый запрос отвечал 403. Такую сессию здесь не принимаем вовсе.
   if (raw.includes('investor')) return null;
-  // Anything else authenticated against this backend is treated as staff/admin.
-  return p ? 'admin' : null;
+  // Рабочие места УК: бухгалтер (Finance) и юрист (Auditor). Каждый видит только свои разделы —
+  // бэкенд их роли дальше и не пускает, так что полная админка тут была бы набором кнопок,
+  // отвечающих 403.
+  if (raw.includes('finance')) return 'accountant';
+  if (raw.includes('auditor')) return 'lawyer';
+  // Роль, которой здесь нет отдельного рабочего места, НЕ становится админом. Раньше сюда
+  // проваливалось всё аутентифицированное подряд: любая новая роль на бэкенде молча получала
+  // полную админку, и единственным, что её останавливало, были 403 на каждом запросе.
+  if (raw.includes('admin')) return 'admin';
+  return null;
 }
 
 // Инициалы для кружка в шапке: «Шахин Сузан» -> «ШС». Одно слово -> первая буква.
@@ -51,12 +61,17 @@ function userFromToken(token) {
     return { id: p.sub, name: '', companyName: '', apiRole: p.role };
   }
   const isSuper = role === 'superadmin';
+  const WORKSPACE = {
+    accountant: { name: 'Бухгалтер', username: 'buhgalter', avatar: 'БУХ' },
+    lawyer: { name: 'Юрист', username: 'yurist', avatar: 'ЮР' },
+  };
+  const workspace = WORKSPACE[role];
   return {
     id: p.sub,
-    name: p.email || p.role || (isSuper ? 'Super Admin' : 'Admin'),
-    username: p.email || (isSuper ? 'superadmin' : 'admin'),
+    name: workspace?.name || p.email || p.role || (isSuper ? 'Super Admin' : 'Admin'),
+    username: workspace?.username || p.email || (isSuper ? 'superadmin' : 'admin'),
     role: p.role,
-    avatar: isSuper ? 'SA' : (p.role || 'ADMIN'),
+    avatar: workspace?.avatar || (isSuper ? 'SA' : (p.role || 'ADMIN')),
   };
 }
 
@@ -262,6 +277,12 @@ export default function App() {
     }
     if (role === 'realtor') {
       return <RealtorApp currentUser={currentUser} onLogout={handleLogout} />;
+    }
+    if (role === 'accountant') {
+      return <AccountantApp currentUser={currentUser} onLogout={handleLogout} />;
+    }
+    if (role === 'lawyer') {
+      return <LawyerApp currentUser={currentUser} onLogout={handleLogout} />;
     }
     return <AdminApp currentUser={currentUser} onLogout={handleLogout} />;
   }

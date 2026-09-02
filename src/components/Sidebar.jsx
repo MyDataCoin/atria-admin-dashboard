@@ -22,10 +22,15 @@ export default function Sidebar({
   isOpen, 
   onClose,
   adminUser,
-  onLogout 
+  onLogout,
+  // Рабочие места бухгалтера и юриста используют ту же панель с другим набором разделов.
+  // Передаётся списком, а не флагом роли: разделы решает приложение, а Sidebar их только рисует —
+  // иначе каждое новое рабочее место дописывало бы сюда ещё одну ветку.
+  items,
+  title,
 }) {
   
-  const menuItems = [
+  const defaultItems = [
     { id: 'dashboard', label: 'Сводка & Статистика', icon: LayoutDashboard },
     { id: 'properties', label: 'Объекты & Документы', icon: Building },
     { id: 'news', label: 'Финотчёты & Новости', icon: Newspaper },
@@ -38,6 +43,8 @@ export default function Sidebar({
     { id: 'support', label: 'Поддержка & Тикеты', icon: HelpCircle },
     { id: 'audit_log', label: 'Журнал Аудита & Роли', icon: Activity },
   ];
+
+  const menuItems = items && items.length > 0 ? items : defaultItems;
 
   return (
     <>
@@ -74,6 +81,13 @@ export default function Sidebar({
                 <h1 className="font-serif text-xl tracking-[0.25em] text-white uppercase font-bold leading-none">
                   ATRIA
                 </h1>
+                {/* Подпись рабочего места. Бухгалтер и юрист видят одну и ту же панель ATRIA,
+                    и без неё непонятно, в каком из кабинетов человек находится. */}
+                {title && (
+                  <p className="mt-1 text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold">
+                    {title}
+                  </p>
+                )}
               </div>
             </div>
 

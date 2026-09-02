@@ -495,6 +495,34 @@ export const payouts = {
   cancel: (id, reason) => request(`/payouts/${id}/cancel`, { method: 'POST', body: { reason } }),
 };
 
+// ---- Operating periods ----------------------------------------------------
+
+// What an issue earned and spent over one stretch of time — the figures a dividend is declared
+// FROM. A dividend must name a confirmed period and cannot exceed its net income, so every payment
+// traces back to income the owner's side signed off on instead of to a number typed into a form.
+//
+// Reporting and confirming are separate acts by DIFFERENT people: the backend refuses a confirm
+// from the same account that reported the figures. A period is a draft until confirmed — revisable,
+// and unusable for a distribution. Once confirmed the figures are frozen.
+export const operatingPeriods = {
+  // Admin, Finance or Auditor.
+  list: (propertyId) => request(`/operating-periods?propertyId=${propertyId}`),
+  get: (id) => request(`/operating-periods/${id}`),
+  // Admin or Finance. body: { propertyId, startUtc, endUtc, grossRevenue, operatingExpenses,
+  // note?, lines?: [{ kind: 'revenue'|'expense', label, amount }] }. 409 when a period covering
+  // exactly these dates already exists for the issue.
+  report: (body) => request('/operating-periods', { method: 'POST', body }),
+  // Admin or Finance. Draft only — 409 once confirmed. body: { grossRevenue, operatingExpenses,
+  // note?, lines? }.
+  revise: (id, body) => request(`/operating-periods/${id}`, { method: 'PATCH', body }),
+  // Admin or Finance. 409 when the caller is the person who reported the figures.
+  confirm: (id) => request(`/operating-periods/${id}/confirm`, { method: 'POST' }),
+  // CSV download («выгрузка из системы»). Resolves with the raw Response, like
+  // holders.exportSnapshot — the caller reads the blob and the server's filename.
+  export: (propertyId) =>
+    request(`/operating-periods/export?propertyId=${propertyId}`, { raw: true }),
+};
+
 // ---- Governance (two-person rule) -----------------------------------------
 
 // Starting a distribution, publishing an issue and blocking an investor take two
@@ -521,6 +549,7 @@ export default {
   investments,
   holders,
   payouts,
+  operatingPeriods,
   governance,
   kyc,
   consent,
