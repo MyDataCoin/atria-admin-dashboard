@@ -29,12 +29,22 @@ function mapPropertyStatus(status, isActive) {
 }
 
 export function mapPropertyFromApi(p) {
-  // Backend now returns real photos (PropertyImageDto { id, url }); fall back to a
-  // placeholder only when the property has none.
-  const apiImages = Array.isArray(p.images)
-    ? p.images.map((img) => (typeof img === 'string' ? img : img?.url)).filter(Boolean)
+  // Backend returns PropertyImageDto { id, url, kind, caption } в порядке галереи — первый
+  // элемент обложка. Плейсхолдер только когда картинок нет вообще.
+  //
+  // Держим два представления: `images` — просто URL'ы, их ждут существующие карусели, а `gallery`
+  // несёт вид и подпись. Рендер обязан быть подписан как визуализация, и по одному URL этого не
+  // узнать.
+  const apiGallery = Array.isArray(p.images)
+    ? p.images
+        .map((img) =>
+          typeof img === 'string'
+            ? { id: null, url: img, kind: 'photo', caption: '' }
+            : { id: img?.id ?? null, url: img?.url, kind: img?.kind || 'photo', caption: img?.caption || '' })
+        .filter((img) => img.url)
     : [];
-  const images = apiImages.length > 0 ? apiImages : [PLACEHOLDER_IMAGE];
+  const images = apiGallery.length > 0 ? apiGallery.map((img) => img.url) : [PLACEHOLDER_IMAGE];
+  const gallery = apiGallery;
 
   return {
     id: p.id,
@@ -78,6 +88,7 @@ export function mapPropertyFromApi(p) {
     floors: p.floors ?? null,
     completionYear: p.yearBuilt ?? null,
     images,
+    gallery,
     image: images[0],
 
     // Documents persisted on the backend (PropertyDocumentDto { id, url, fileName, contentType }).

@@ -21,6 +21,13 @@ const TABS = [
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&q=80&w=800';
 
+// Подписи к неснимаемым изображениям. У фотографии подписи нет — она и так фотография.
+const IMAGE_KIND_LABELS = {
+  render: 'Визуализация',
+  floor_plan: 'Планировка',
+  site_plan: 'Генплан',
+};
+
 const formatTokens = (count) => (count == null ? '—' : Number(count).toLocaleString('ru-RU'));
 
 const formatMoney = (amount, currencyCode) =>
@@ -71,6 +78,9 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
   const [holdersError, setHoldersError] = useState('');
 
   const images = property?.images?.length ? property.images : [property?.image].filter(Boolean);
+  // Галерея с видом и подписью. Её может не быть у объектов из старого маппинга — тогда просто
+  // показываем картинку без подписи, а не падаем.
+  const activeImage = property?.gallery?.[activeImgIndex] || null;
 
   useEffect(() => {
     setActiveTab('info');
@@ -130,6 +140,20 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
             referrerPolicy="no-referrer"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent pointer-events-none" />
+
+          {/* Что это за картинка. Рендер обязан быть подписан: это изображение того, чего ещё
+              нет, и показывать его как фотографию — вводить инвестора в заблуждение. */}
+          {activeImage && activeImage.kind !== 'photo' && (
+            <div className="absolute top-4 left-4 z-10 bg-black/60 backdrop-blur-xs text-white text-[9px] uppercase tracking-wider font-bold px-2 py-1 rounded-sm">
+              {IMAGE_KIND_LABELS[activeImage.kind] || activeImage.kind}
+            </div>
+          )}
+
+          {activeImage?.caption && (
+            <div className="absolute bottom-4 left-6 z-10 max-w-[60%] text-[11px] text-white/90 leading-snug">
+              {activeImage.caption}
+            </div>
+          )}
 
           {images.length > 1 && (
             <div className="absolute bottom-4 right-6 flex gap-1.5 z-10 bg-black/40 backdrop-blur-xs p-1.5 rounded-full">

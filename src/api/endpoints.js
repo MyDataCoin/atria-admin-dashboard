@@ -149,11 +149,21 @@ export const properties = {
   // Admin only. Resumes a paused offering (salesPaused=false). PROPOSED — see handoff notes.
   resume: (id) => request(`/properties/${id}/resume`, { method: 'POST' }),
   // Admin only. Uploads one image (max 10/property). Returns { id, url }.
-  uploadImage: (id, file, filename) => {
+  // Admin only. Uploads one image (max 10/property). Returns { id, url, kind, caption }.
+  // `kind`: 'photo' (по умолчанию) | 'render' | 'floor_plan' | 'site_plan'. Рендер показывается
+  // с подписью «визуализация» — это картинка того, чего ещё нет.
+  // Картинка добавляется в конец галереи; обложка выбирается через reorderImages.
+  uploadImage: (id, file, filename, { kind, caption } = {}) => {
     const form = new FormData();
     form.append('file', file, filename || file.name || 'photo.jpg');
+    if (kind) form.append('kind', kind);
+    if (caption) form.append('caption', caption);
     return request(`/properties/${id}/images`, { method: 'POST', body: form });
   },
+  // Admin only. Порядок галереи: первый id — обложка. Body должен перечислить ВСЕ картинки
+  // объекта ровно по одному разу, иначе 400.
+  reorderImages: (id, imageIds) =>
+    request(`/properties/${id}/images/order`, { method: 'PUT', body: { imageIds } }),
   deleteImage: (id, imageId) =>
     request(`/properties/${id}/images/${imageId}`, { method: 'DELETE' }),
   // Admin only. Uploads a document file for a property. The backend accepts PDF, JPEG, PNG and
