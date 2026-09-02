@@ -21,6 +21,8 @@ import {
   CHARACTERISTIC_FIELDS as PROPERTY_CHARACTERISTICS,
   ENCUMBRANCE_CHOICES as ENCUMBRANCE_STATES,
 } from './UnitEditor';
+import { PAYOUT_FREQUENCIES as PAYOUT_FREQUENCY_OPTIONS } from '../api/mappers';
+import PlacementPanel from './PlacementPanel';
 import { safeUrl } from '../utils';
 import {
   Building, 
@@ -457,6 +459,7 @@ export default function PropertiesList({
           ? prop.isFreeOfEncumbrances
           : null,
       encumbranceCheckedAtUtc: prop.encumbranceCheckedAtUtc || null,
+      payoutFrequency: prop.payoutFrequency || '',
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
     });
     setFormUnits([]);
@@ -1673,6 +1676,12 @@ export default function PropertiesList({
                             </div>
                           );
                         })()}
+
+                        {/* Расписание размещения и два ответа на недособранную цель. Только для
+                            объектов с бэкенда: у локальных записей нет id, по которому бить в API. */}
+                        {selectedProp._source === 'api' && (
+                          <PlacementPanel property={selectedProp} onChanged={onRefreshProperties} />
+                        )}
                       </div>
                     )}
 
@@ -2277,6 +2286,18 @@ export default function PropertiesList({
                           />
                         </div>
                       ))}
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Периодичность выплат</label>
+                        <select
+                          value={formData.payoutFrequency ?? ''}
+                          onChange={(e) => setFormData({ ...formData, payoutFrequency: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                        >
+                          {PAYOUT_FREQUENCY_OPTIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
 
                     {/* Проверка Кадастра: «не проверяли» — отдельное состояние, а не отсутствие

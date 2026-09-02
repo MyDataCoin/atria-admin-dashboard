@@ -1,6 +1,12 @@
 import React from 'react';
 import { Plus, Trash2, Home, Car, FileText } from 'lucide-react';
-import { UNIT_TYPE_LABELS, UNIT_KINDS, isParkingUnitType, minPurchaseTokensFrom } from '../api/mappers';
+import {
+  UNIT_TYPE_LABELS,
+  UNIT_KINDS,
+  isParkingUnitType,
+  minPurchaseTokensFrom,
+  PAYOUT_FREQUENCIES,
+} from '../api/mappers';
 
 // Max photos per unit — mirrors Property.MaxImages on the backend.
 export const MAX_UNIT_IMAGES = 10;
@@ -74,6 +80,9 @@ export function newUnit(unitType = 'apartment') {
     parking: '',
     // Проверка Кадастра: null — не проверяли. Отдельно от «обременений нет».
     isFreeOfEncumbrances: null,
+    // Периодичность выплат. Пусто — не задана: до ввода в эксплуатацию выпуск всё равно
+    // ничего не платит, и обещать частоту раньше времени нечестно.
+    payoutFrequency: '',
     description: '',
     rooms: (ROOM_PRESETS[unitType] || []).map((name) => ({ name, areaSqM: '' })),
     tokenPrice: 1000,
@@ -430,6 +439,20 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
               />
             </div>
           ))}
+          <div>
+            <label className={labelClass}>Периодичность выплат</label>
+            {/* Пока объект не введён в эксплуатацию, выпуск не платит независимо от того,
+                что здесь выбрано — витрина читает отдельный признак, а не это поле. */}
+            <select
+              value={unit.payoutFrequency ?? ''}
+              onChange={(e) => patch({ payoutFrequency: e.target.value })}
+              className={inputClass}
+            >
+              {PAYOUT_FREQUENCIES.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Проверка Кадастра. Три состояния, а не галочка: «не проверяли» — это не «обременений

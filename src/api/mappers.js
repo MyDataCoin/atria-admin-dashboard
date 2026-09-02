@@ -150,6 +150,16 @@ export function mapPropertyFromApi(p) {
     // true и когда цели нет: выпуск, не поставивший цель, не может её не достичь.
     isTargetMet: p.isTargetMet !== false,
     placementExtensionCount: p.placementExtensionCount ?? 0,
+    // Выпускаемая площадь: то, из чего нарезан выпуск, когда продаётся часть объекта.
+    // Метраж доли бэкенд считает сам — здесь только показываем.
+    offeredAreaSqM: p.offeredAreaSqM ?? null,
+    // Периодичность выплат. 'unspecified' -> '' : «не задано» в форме это пустой select,
+    // а не отдельный вариант, который админ мог бы выбрать осознанно.
+    payoutFrequency:
+      p.payoutFrequency && p.payoutFrequency !== 'unspecified' ? p.payoutFrequency : '',
+    // Платит ли выпуск уже сейчас. Считает бэкенд: до ввода в эксплуатацию не платит,
+    // какую бы периодичность ни завели.
+    distributesYet: p.distributesYet === true,
 
     _source: 'api',
   };
@@ -597,6 +607,7 @@ export function mapPropertyToCreateRequest(form) {
     constructionStage: form.constructionStage || null,
     plannedCompletionDate: form.plannedCompletionDate || null,
     readinessPercent: numOrNull(form.readinessPercent),
+    payoutFrequency: form.payoutFrequency || null,
     ...encumbranceFields(form),
     ...characteristicFields(form),
   };
@@ -700,6 +711,7 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     roomCount: numOrNull(unit.roomCount),
     totalAreaSqM: numOrNull(unit.totalAreaSqM),
     rooms: mapRoomsToApi(unit.rooms),
+    payoutFrequency: unit.payoutFrequency || null,
     // Характеристики помещения берём с помещения, а не со здания: полезная площадь и назначение
     // по документам у гаража свои, даже когда класс и отопление наследуются от дома.
     ...characteristicFields(unit),
@@ -715,6 +727,34 @@ function parkingFields(unit) {
   const parking = isParkingUnitType(unit.unitType);
   const text = (v) => (parking && v != null && String(v).trim() !== '' ? String(v).trim() : null);
   return { section: text(unit.section), row: text(unit.row), spot: text(unit.spot) };
+}
+
+/** Периодичность выплат — те же значения, что понимает бэкенд. */
+export const PAYOUT_FREQUENCIES = [
+  { value: '', label: 'Не задана' },
+  { value: 'monthly', label: 'Ежемесячно' },
+  { value: 'quarterly', label: 'Ежеквартально' },
+  { value: 'annually', label: 'Раз в год' },
+  // Отдельный осознанный ответ, а не отсутствие ответа: выпуск, который не платит вообще.
+  { value: 'none', label: 'Не платит' },
+];
+
+/**
+ * Форма окна размещения -> POST /properties/{id}/placement.
+ *
+ * Пустые поля не отправляем вовсе: бэкенд трактует отсутствующее поле как «не менять», и
+ * пустая дата в форме не должна стирать уже назначенное расписание. Выпускаемую площадь
+ * бэкенд замораживает после первой же проданной доли — форма это учитывает и блокирует поле.
+ */
+export function mapPlacementToRequest(form) {
+  const body = {};
+  if (form.opensAtUtc) body.opensAtUtc = new Date(form.opensAtUtc).toISOString();
+  if (form.closesAtUtc) body.closesAtUtc = new Date(form.closesAtUtc).toISOString();
+  const target = numOrNull(form.targetAmount);
+  if (target != null) body.targetAmount = target;
+  const offered = numOrNull(form.offeredAreaSqM);
+  if (offered != null) body.offeredAreaSqM = offered;
+  return body;
 }
 
 /**
@@ -784,6 +824,7 @@ export function mapUnitToUpdateRequest(unit) {
     // Always sent on edit: the admin edits the breakdown as one table, and an empty table means
     // "clear it" — which is [] on the wire, not null.
     rooms: (mapRoomsToApi(unit.rooms) || []),
+    payoutFrequency: unit.payoutFrequency || null,
     ...encumbranceFields(unit),
     ...characteristicFields(unit),
   };
