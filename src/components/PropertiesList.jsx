@@ -21,7 +21,11 @@ import {
   CHARACTERISTIC_FIELDS as PROPERTY_CHARACTERISTICS,
   ENCUMBRANCE_CHOICES as ENCUMBRANCE_STATES,
 } from './UnitEditor';
-import { PAYOUT_FREQUENCIES as PAYOUT_FREQUENCY_OPTIONS } from '../api/mappers';
+import {
+  PAYOUT_FREQUENCIES as PAYOUT_FREQUENCY_OPTIONS,
+  DOCUMENT_CATEGORIES,
+  DOCUMENT_CATEGORY_LABELS,
+} from '../api/mappers';
 import PlacementPanel from './PlacementPanel';
 import { safeUrl } from '../utils';
 import {
@@ -798,7 +802,9 @@ export default function PropertiesList({
         if (docsWithFiles.length) setSaveProgress(`Загружаем документы (${docsWithFiles.length})…`);
         for (const d of docsWithFiles) {
           try {
-            await api.properties.uploadDocument(firstUnitId, d.file, d.file.name || d.title);
+            await api.properties.uploadDocument(
+              firstUnitId, d.file, d.file.name || d.title,
+              { category: d.category, title: d.title });
           } catch {
             /* skip a failed document upload but keep creating the object */
           }
@@ -868,7 +874,9 @@ export default function PropertiesList({
         await uploadImages(formData.id, newImageFiles);
         // 3) Upload newly attached documents to the backend.
         for (const d of newDocFiles) {
-          await api.properties.uploadDocument(formData.id, d.file, d.file.name || d.title);
+          await api.properties.uploadDocument(
+            formData.id, d.file, d.file.name || d.title,
+            { category: d.category, title: d.title });
         }
         // 4) Persist a status change via the lifecycle endpoints (forward-only, draft⇄coming_soon).
         if (statusChanged) {
@@ -934,12 +942,25 @@ export default function PropertiesList({
       setDocUploading(true);
       setDocError('');
       try {
-        const saved = await api.properties.uploadDocument(selectedProp.id, docFile, docFile.name);
+        const saved = await api.properties.uploadDocument(
+          selectedProp.id, docFile, docFile.name,
+          { category: docCategory, title: docTitle });
         // Show it immediately (backend returns id/url/fileName) and keep the list persistent.
         setSelectedProp((prev) => ({
           ...prev,
           documents: [
-            { id: saved?.id, fileName: saved?.fileName || docFile.name, url: saved?.url, contentType: saved?.contentType },
+            {
+              id: saved?.id,
+              fileName: saved?.fileName || docFile.name,
+              url: saved?.url,
+              contentType: saved?.contentType,
+              // Категорию и название возвращает бэкенд — берём их, а не то, что было в форме:
+              // нераспознанную категорию он кладёт как «не указано», и список должен показать
+              // то, что реально сохранено.
+              category: saved?.category || 'unspecified',
+              title: saved?.title || null,
+              displayName: saved?.displayName || saved?.fileName || docFile.name,
+            },
             ...(prev.documents || []),
           ],
         }));
@@ -1749,7 +1770,12 @@ export default function PropertiesList({
                         {(() => {
                           // Backend docs (persisted) + any local demo docs for this object.
                           const apiDocs = (selectedProp.documents || []).map((d) => ({
-                            id: d.id, title: d.fileName || 'Документ', url: d.url, _api: true,
+                            id: d.id,
+                            // displayName — название, а если его не давали, имя файла. Считает бэкенд.
+                            title: d.displayName || d.fileName || 'Документ',
+                            category: d.category,
+                            url: d.url,
+                            _api: true,
                           }));
                           const localDocs = documents
                             .filter((d) => d.propertyId === selectedProp.id)
@@ -1769,11 +1795,20 @@ export default function PropertiesList({
                                     <span className="font-bold text-gray-900 block truncate">{doc.title}</span>
                                   )}
                                   <span className="text-[9px] text-gray-400 font-mono">
-                                    {doc._api ? 'Сохранён на сервере' : `Категория: ${(doc.category || '').toUpperCase()} • Размер: ${doc.fileSize}`}
+                                    {doc._api
+                                      ? 'Сохранён на сервере'
+                                      : `Категория: ${(doc.category || '').toUpperCase()} • Размер: ${doc.fileSize}`}
                                   </span>
                                 </div>
                               </div>
                               <div className="flex gap-2 shrink-0 items-center">
+                                {/* Вид документа — рядом с именем: юрист ищет выписку из Кадастра
+                                    по виду, а не по тому, как файл назвал сканер. */}
+                                {DOCUMENT_CATEGORY_LABELS[doc.category] && (
+                                  <span className="text-[8px] font-mono uppercase font-bold text-[#A38D6D] bg-[#A38D6D]/10 border border-[#A38D6D]/20 px-2 py-0.5 rounded whitespace-nowrap">
+                                    {DOCUMENT_CATEGORY_LABELS[doc.category]}
+                                  </span>
+                                )}
                                 {!doc._api && doc.status && (
                                   <span className="text-[8px] font-mono uppercase font-bold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded">
                                     {doc.status}
@@ -1803,6 +1838,26 @@ export default function PropertiesList({
                         {docError && (
                           <p className="text-[10px] font-mono font-bold text-rose-600">⚠ {docError}</p>
                         )}
+                        {/* Название и вид документа. Без них список превращается в набор имён
+                            файлов, и техпаспорт от графика работ не отличить. */}
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <input
+                            type="text"
+                            placeholder="Название документа (необязательно)"
+                            value={docTitle}
+                            onChange={(e) => setDocTitle(e.target.value)}
+                            className="flex-1 p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                          />
+                          <select
+                            value={docCategory}
+                            onChange={(e) => setDocCategory(e.target.value)}
+                            className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] sm:w-44 shrink-0"
+                          >
+                            {DOCUMENT_CATEGORIES.map(({ value, label }) => (
+                              <option key={value} value={value}>{label}</option>
+                            ))}
+                          </select>
+                        </div>
                         <label className="flex items-center gap-2 p-2 border border-dashed border-gray-300 hover:border-[#A38D6D] rounded cursor-pointer text-gray-500 hover:text-[#A38D6D] transition-colors">
                           <Upload size={13} className="shrink-0" />
                           <span className="truncate">{docFile ? docFile.name : 'Выберите файл (PDF, DOC, DOCX, XLSX…)'}</span>
@@ -2539,9 +2594,9 @@ export default function PropertiesList({
                       onChange={(e) => setFormDocCategory(e.target.value)}
                       className="p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D] sm:w-36 shrink-0"
                     >
-                      <option value="legal">Юридический</option>
-                      <option value="valuation">Оценка</option>
-                      <option value="collateral">Залог</option>
+                      {DOCUMENT_CATEGORIES.map(({ value, label }) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
                     </select>
                     <label className="flex items-center justify-center gap-1.5 border border-dashed border-gray-300 hover:border-[#A38D6D] rounded px-3 py-2 cursor-pointer transition-colors text-gray-500 hover:text-[#A38D6D] bg-white shrink-0">
                       <Upload size={13} />

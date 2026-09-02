@@ -169,9 +169,15 @@ export const properties = {
   // Admin only. Uploads a document file for a property. The backend accepts PDF, JPEG, PNG and
   // WebP only, up to 25 MB — a DOC/DOCX is refused with a 400, despite what this comment used to
   // claim. Stores only the file (multipart field `file`) and returns { id, url, fileName, contentType }.
-  uploadDocument: (id, file, filename) => {
+  // `category` — что это за документ: legal | technical_passport | valuation | collateral |
+  // construction_schedule | layout. Нераспознанное значение бэкенд кладёт как «не указано», а не
+  // отклоняет загрузку: потерять файл из-за метки хуже, чем потерять метку.
+  // `title` — как называть документ в списке; пусто — берётся имя файла.
+  uploadDocument: (id, file, filename, { category, title } = {}) => {
     const form = new FormData();
     form.append('file', file, filename || file.name || 'document.pdf');
+    if (category) form.append('category', category);
+    if (title && title.trim()) form.append('title', title.trim());
     return request(`/properties/${id}/documents`, { method: 'POST', body: form });
   },
   deleteDocument: (id, documentId) =>

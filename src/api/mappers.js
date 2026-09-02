@@ -93,7 +93,17 @@ export function mapPropertyFromApi(p) {
 
     // Documents persisted on the backend (PropertyDocumentDto { id, url, fileName, contentType }).
     documents: Array.isArray(p.documents)
-      ? p.documents.map((d) => ({ id: d.id, fileName: d.fileName, url: d.url, contentType: d.contentType }))
+      ? p.documents.map((d) => ({
+          id: d.id,
+          fileName: d.fileName,
+          url: d.url,
+          contentType: d.contentType,
+          // Что это за документ и как его называть в списке. displayName считает бэкенд:
+          // название, а если его не давали — имя файла.
+          category: d.category || 'unspecified',
+          title: d.title || null,
+          displayName: d.displayName || d.fileName,
+        }))
       : [],
 
     // Unit inside a building (null / '' for a standalone issue). The building itself issues
@@ -734,6 +744,21 @@ function parkingFields(unit) {
   const text = (v) => (parking && v != null && String(v).trim() !== '' ? String(v).trim() : null);
   return { section: text(unit.section), row: text(unit.row), spot: text(unit.spot) };
 }
+
+/** Виды документов — те же значения, что понимает бэкенд. */
+export const DOCUMENT_CATEGORIES = [
+  { value: 'legal', label: 'Юридический' },
+  { value: 'technical_passport', label: 'Техпаспорт и кадастр' },
+  { value: 'valuation', label: 'Оценка' },
+  { value: 'collateral', label: 'Залог' },
+  { value: 'construction_schedule', label: 'График работ' },
+  { value: 'layout', label: 'Планировки' },
+];
+
+/** Подпись вида документа. 'unspecified' и незнакомые значения — без подписи. */
+export const DOCUMENT_CATEGORY_LABELS = Object.fromEntries(
+  DOCUMENT_CATEGORIES.map(({ value, label }) => [value, label]),
+);
 
 /** Периодичность выплат — те же значения, что понимает бэкенд. */
 export const PAYOUT_FREQUENCIES = [
