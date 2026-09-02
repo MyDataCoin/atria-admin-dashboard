@@ -49,6 +49,38 @@ function formatFeedbackDate(iso) {
   });
 }
 
+// Учётки персонала, которые заводит суперадмин. Все три создаются одним эндпоинтом POST /admins и
+// отличаются только ролью — бэкенд принимает ровно эти три и отказывает остальным (400), чтобы
+// вторым суперадмином нельзя было стать через поле формы.
+//
+// Риелтора здесь нет намеренно: у него свой эндпоинт, компания и телефон.
+// Подпись роли в списке персонала. Без неё бухгалтер и юрист выглядели бы в таблице
+// администраторами — а это очень разные учётки.
+const STAFF_ROLE_LABELS = {
+  Admin: 'Администратор',
+  SuperAdmin: 'Суперадмин',
+  Finance: 'Бухгалтер',
+  Auditor: 'Юрист',
+};
+
+const STAFF_KINDS = {
+  admin: {
+    role: 'Admin',
+    noun: 'Администратор',
+    hint: 'Полный доступ к панели: объекты, заявки, минт, выплаты, пользователи.',
+  },
+  accountant: {
+    role: 'Finance',
+    noun: 'Бухгалтер',
+    hint: 'Отчётные периоды, выплаты и реестр держателей. Подтверждать свои же цифры не может.',
+  },
+  lawyer: {
+    role: 'Auditor',
+    noun: 'Юрист',
+    hint: 'Только чтение: объекты и документы, отчётные периоды, журнал аудита.',
+  },
+};
+
 export default function SuperAdminApp({ currentUser, onLogout }) {
   const [tab, setTab] = useState('investors'); // investors | realtors | admins
   const [query, setQuery] = useState('');
@@ -220,11 +252,14 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
     setRegResult(null);
     const fullName = reg.fullName.trim();
     try {
-      if (regKind === 'admin') {
+      if (regKind !== 'realtor') {
         await api.superadmin.registerAdmin({
           username: reg.username.trim(),
           fullName,
           password: reg.password,
+          // Бухгалтер и юрист — те же учётки персонала, отличаются только ролью. Отдельного
+          // эндпоинта им не нужно: /admins создаёт любую из трёх.
+          role: STAFF_KINDS[regKind].role,
         });
       } else {
         await api.superadmin.registerRealtor({
@@ -237,7 +272,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
       }
       setRegResult({
         kind: 'ok',
-        text: `${regKind === 'admin' ? 'Администратор' : 'Риелтор'} «${fullName}» создан. `
+        text: `${regKind === 'realtor' ? 'Риелтор' : STAFF_KINDS[regKind].noun} «${fullName}» создан. `
           + 'Пароль разовый — при первом входе аккаунт попросит сменить его.',
       });
       setReg({ username: '', password: '', fullName: '', companyName: '', phoneNumber: '' });
@@ -403,7 +438,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-[9px] font-mono uppercase font-bold tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/30 hover:bg-rose-500/25 transition-all cursor-pointer"
               >
                 <UserPlus size={12} />
-                {tab === 'admins' ? 'Создать администратора' : 'Зарегистрировать риелтора'}
+                {tab === 'admins' ? 'Создать сотрудника' : 'Зарегистрировать риелтора'}
               </button>
             )}
             <button
@@ -581,7 +616,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
               <thead>
                 <tr className="bg-white/5 text-[9px] uppercase tracking-wider text-gray-500 font-bold font-mono">
                   <th className="py-3 px-4 text-left">
-                    {tab === 'investors' ? 'Инвестор' : tab === 'realtors' ? 'Риелтор' : 'Администратор'}
+                    {tab === 'investors' ? 'Инвестор' : tab === 'realtors' ? 'Риелтор' : 'Сотрудник'}
                   </th>
                   <th className="py-3 px-4 text-left">Статус</th>
                   <th className="py-3 px-4 text-right">Действия</th>
@@ -602,7 +637,8 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
                   const subtitle = isRealtor
                     ? [row.username && `@${row.username}`, row.companyName].filter(Boolean).join(' · ') || 'Риелтор'
                     : isAdmin
-                      ? row.username || row.email || 'Администратор'
+                      ? [row.username || row.email, STAFF_ROLE_LABELS[row.staffRole]]
+                          .filter(Boolean).join(' · ') || 'Сотрудник'
                       : row.phone || row.email || '—';
                   return (
                     <tr key={row.id} className="hover:bg-white/5 align-top">
@@ -753,7 +789,7 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-4">
               <h3 className="font-serif text-base text-white flex items-center gap-2">
                 <UserPlus size={16} className="text-rose-400" />
-                {regKind === 'admin' ? 'Новый администратор' : 'Новый риелтор'}
+                {regKind === 'realtor' ? 'Новый риелтор' : `Новый ${STAFF_KINDS[regKind].noun.toLowerCase()}`}
               </h3>
               <button
                 onClick={() => setShowRegister(false)}
@@ -764,6 +800,36 @@ export default function SuperAdminApp({ currentUser, onLogout }) {
             </div>
 
             <form onSubmit={submitRegister} className="space-y-3 text-xs">
+              {/* Кто именно заводится. Показывается только на вкладке персонала: риелтор
+                  создаётся своим эндпоинтом и берёт компанию с телефоном, поэтому в один
+                  переключатель с остальными не складывается. */}
+              {regKind !== 'realtor' && (
+                <div className="space-y-1">
+                  <label className="block text-[8px] uppercase font-bold tracking-wider text-gray-500 font-mono">
+                    Роль *
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {Object.entries(STAFF_KINDS).map(([key, meta]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setRegKind(key)}
+                        className={`px-2 py-2 rounded text-[9px] font-mono uppercase font-bold tracking-wider border transition-all cursor-pointer ${
+                          regKind === key
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                            : 'bg-white/5 text-gray-400 border-white/10 hover:text-white'
+                        }`}
+                      >
+                        {meta.noun}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[9px] text-gray-500 font-mono leading-relaxed pt-0.5">
+                    {STAFF_KINDS[regKind].hint}
+                  </p>
+                </div>
+              )}
+
               {[
                 { k: 'fullName', label: 'ФИО *' },
                 { k: 'username', label: 'Логин *' },

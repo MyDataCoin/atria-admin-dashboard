@@ -263,17 +263,21 @@ export function mapAppealFromApi(dto) {
 }
 
 /**
- * Staff/admin row (proposed GET /admins) -> super-admin panel row.
- * `role: 'admin'` tags the row so the panel shows password controls (admins have
- * passwords; investors don't).
+ * Staff row (GET /admins) -> super-admin panel row.
+ *
+ * `role: 'admin'` — это тег ВИДА строки, по нему панель показывает управление паролем (у персонала
+ * пароль есть, у инвестора нет). Настоящая роль лежит отдельно в `staffRole`: одно поле не может
+ * значить и то, и другое, а различать администратора, бухгалтера и юриста в списке надо.
  */
 export function mapAdminFromApi(dto) {
   return {
     id: dto.id || dto.userId,
-    name: dto.fullName || dto.username || dto.name || 'Администратор',
+    name: dto.fullName || dto.username || dto.name || 'Сотрудник',
     username: dto.username || '',
     email: dto.email || '',
     role: 'admin',
+    // Admin | SuperAdmin | Finance | Auditor — как их называет бэкенд.
+    staffRole: dto.role || 'Admin',
     status: dto.blocked ? 'Blocked' : 'Active',
     _source: 'api',
   };

@@ -362,11 +362,12 @@ export const feedback = {
 // ALL PROPOSED — the backend has no superadmin role and none of these routes yet
 // (superadmin login returns 401). See BACKEND-SUPERADMIN.md.
 export const superadmin = {
-  // List staff/admin accounts (so a super admin can reset/restore their passwords).
-  // PROPOSED — no admin-list endpoint exists yet (/users is the investor registry and
-  // carries no role). See BACKEND-SUPERADMIN-ADMINS.md.
+  // Список учёток персонала (админы, суперадмины, бухгалтеры, юристы) — по ним суперадмин
+  // сбрасывает и восстанавливает пароли. Каждая строка несёт `role`.
   listAdmins: () => request('/admins'),
-  // Создать аккаунт администратора. body: { username, fullName, password }
+  // Создать учётку персонала. body: { username, fullName, password, role? }
+  // role: 'Admin' (по умолчанию) | 'Finance' (бухгалтер) | 'Auditor' (юрист). Остальные роли
+  // бэкенд отклоняет с 400 — вторым суперадмином через форму стать нельзя.
   // Пароль разовый: аккаунт помечается флагом смены пароля при первом входе.
   registerAdmin: (body) => request('/admins', { method: 'POST', body }),
   // Register a new realtor account. PROPOSED — no such endpoint exists yet; only OTP
