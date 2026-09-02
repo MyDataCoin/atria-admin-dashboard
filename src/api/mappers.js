@@ -115,6 +115,19 @@ export function mapPropertyFromApi(p) {
     // that does not add up. The server deliberately does not reject a mismatch.
     roomsAreaSqM: p.roomsAreaSqM ?? 0,
 
+    // Описательные характеристики карточки (Блок А). Полезная площадь — отдельно от общей:
+    // это занимаемая площадь без стен и мест общего пользования, и бэкенд не даёт ей превысить
+    // общую. Назначение по документам держим отдельно от type: type — фильтр каталога,
+    // documentedUse — то, что написано в правоустанавливающих.
+    usableAreaSqM: p.usableAreaSqM ?? null,
+    documentedUse: p.documentedUse || '',
+    buildingClass: p.buildingClass || '',
+    wallMaterial: p.wallMaterial || '',
+    heating: p.heating || '',
+    elevator: p.elevator || '',
+    security: p.security || '',
+    parking: p.parking || '',
+
     // Земельный участок и стройка. Гектары участка держим отдельно от totalAreaSqM: это площадь
     // земли, а не продаваемая площадь пола, и делить её на доли нельзя.
     landAreaHectares: p.landAreaHectares ?? null,
@@ -584,6 +597,8 @@ export function mapPropertyToCreateRequest(form) {
     constructionStage: form.constructionStage || null,
     plannedCompletionDate: form.plannedCompletionDate || null,
     readinessPercent: numOrNull(form.readinessPercent),
+    ...encumbranceFields(form),
+    ...characteristicFields(form),
   };
 }
 
@@ -685,6 +700,9 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     roomCount: numOrNull(unit.roomCount),
     totalAreaSqM: numOrNull(unit.totalAreaSqM),
     rooms: mapRoomsToApi(unit.rooms),
+    // Характеристики помещения берём с помещения, а не со здания: полезная площадь и назначение
+    // по документам у гаража свои, даже когда класс и отопление наследуются от дома.
+    ...characteristicFields(unit),
   };
 }
 
@@ -697,6 +715,44 @@ function parkingFields(unit) {
   const parking = isParkingUnitType(unit.unitType);
   const text = (v) => (parking && v != null && String(v).trim() !== '' ? String(v).trim() : null);
   return { section: text(unit.section), row: text(unit.row), spot: text(unit.spot) };
+}
+
+/**
+ * Результат проверки Кадастра на обременения и аресты.
+ *
+ * Бэкенд применяет проверку только когда пришли ОБА поля — флаг и дата, поэтому дату проставляем
+ * сами в момент, когда админ отметил результат, а не оставляем на его усмотрение. Пока флаг не
+ * выставлен (null), не шлём ничего: «не проверяли» и «обременений нет» — разные состояния, и
+ * молчание формы не должно превращаться в утверждение, что объект чист.
+ */
+function encumbranceFields(form) {
+  if (form.isFreeOfEncumbrances !== true && form.isFreeOfEncumbrances !== false) return {};
+  return {
+    isFreeOfEncumbrances: form.isFreeOfEncumbrances,
+    encumbranceCheckedAtUtc: form.encumbranceCheckedAtUtc || new Date().toISOString(),
+  };
+}
+
+/**
+ * Описательные характеристики объекта (Блок А запроса по объекту): полезная площадь, назначение
+ * по документам, класс, материал, отопление, лифт, охрана, парковка.
+ *
+ * Одна функция на создание и на редактирование: разойдись эти два списка, поле, заводимое при
+ * создании, молча терялось бы при первом же «Изменить». Пустая строка уходит как null — бэкенд
+ * трактует null как «не трогать», и затирать уже введённое пустым полем формы нельзя.
+ */
+function characteristicFields(form) {
+  const text = (v) => (v != null && String(v).trim() !== '' ? String(v).trim() : null);
+  return {
+    usableAreaSqM: numOrNull(form.usableAreaSqM),
+    documentedUse: text(form.documentedUse),
+    buildingClass: text(form.buildingClass),
+    wallMaterial: text(form.wallMaterial),
+    heating: text(form.heating),
+    elevator: text(form.elevator),
+    security: text(form.security),
+    parking: text(form.parking),
+  };
 }
 
 /** Garage / parking space — located by section-row-spot rather than by rooms. */
@@ -728,6 +784,8 @@ export function mapUnitToUpdateRequest(unit) {
     // Always sent on edit: the admin edits the breakdown as one table, and an empty table means
     // "clear it" — which is [] on the wire, not null.
     rooms: (mapRoomsToApi(unit.rooms) || []),
+    ...encumbranceFields(unit),
+    ...characteristicFields(unit),
   };
 }
 

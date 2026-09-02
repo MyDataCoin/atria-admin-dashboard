@@ -10,7 +10,14 @@ import {
   formatParkingSpot,
 } from '../api/mappers';
 import { safeUrl } from '../utils';
-import { RoomBreakdown } from './UnitEditor';
+import { RoomBreakdown, CHARACTERISTIC_FIELDS } from './UnitEditor';
+
+// Тот же список, что и в форме, плюс назначение по документам: показываем ровно то, что можно
+// завести. Отдельная копия разошлась бы с формой, и заведённое поле осталось бы не показанным.
+const CHARACTERISTIC_METRICS = [
+  { key: 'documentedUse', label: 'Назначение по документам' },
+  ...CHARACTERISTIC_FIELDS.map(({ key, label }) => ({ key, label })),
+];
 
 const TABS = [
   { id: 'info', label: 'Об объекте' },
@@ -258,9 +265,26 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
                       label="Площадь"
                       value={property.totalAreaSqM ? `${Number(property.totalAreaSqM).toFixed(2)} м²` : '—'}
                     />
+                    <Metric
+                      label="Полезная площадь"
+                      value={property.usableAreaSqM ? `${Number(property.usableAreaSqM).toFixed(2)} м²` : '—'}
+                    />
                   </div>
 
                   <RoomBreakdown rooms={property.rooms} totalAreaSqM={property.totalAreaSqM} />
+                </div>
+              )}
+
+              {/* Характеристики карточки. Блок целиком скрыт, пока не заполнено ни одно поле:
+                  сетка из восьми прочерков не сообщает администратору ничего. */}
+              {CHARACTERISTIC_METRICS.some(({ key }) => property[key]) && (
+                <div>
+                  <h4 className="text-sm font-serif font-bold text-gray-900 mb-3">Характеристики</h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {CHARACTERISTIC_METRICS.map(({ key, label }) => (
+                      <Metric key={key} label={label} value={property[key] || '—'} />
+                    ))}
+                  </div>
                 </div>
               )}
 

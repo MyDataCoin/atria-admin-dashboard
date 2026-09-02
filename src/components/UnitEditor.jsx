@@ -29,6 +29,26 @@ const ROOM_PRESETS = {
   other: [],
 };
 
+// Свободный текст, а не справочники: «монолит-кирпич», «автономное газовое», «два пассажирских,
+// один грузовой» — собственник пишет так, как написано в его документах, и загонять это в
+// перечисление значит терять половину ответа.
+export const CHARACTERISTIC_FIELDS = [
+  { key: 'buildingClass', label: 'Класс объекта', placeholder: 'Бизнес / Комфорт' },
+  { key: 'wallMaterial', label: 'Материал', placeholder: 'Монолит-кирпич' },
+  { key: 'heating', label: 'Отопление', placeholder: 'Центральное / Автономное газовое' },
+  { key: 'elevator', label: 'Лифт', placeholder: 'Два пассажирских, один грузовой' },
+  { key: 'security', label: 'Охрана', placeholder: 'Круглосуточная, видеонаблюдение' },
+  { key: 'parking', label: 'Парковка', placeholder: 'Подземная, 120 мест' },
+];
+
+// null — «не проверяли». Держим третьим состоянием, а не отсутствием выбора, чтобы админ мог
+// вернуть объект в него, если проверка оказалась неактуальной.
+export const ENCUMBRANCE_CHOICES = [
+  { value: null, label: 'Не проверяли', tone: 'border-gray-300 bg-gray-100 text-gray-600' },
+  { value: true, label: 'Свободен', tone: 'border-emerald-300 bg-emerald-50 text-emerald-700' },
+  { value: false, label: 'Есть обременение', tone: 'border-red-300 bg-red-50 text-red-700' },
+];
+
 /** A blank unit row for the create form. */
 export function newUnit(unitType = 'apartment') {
   return {
@@ -42,6 +62,18 @@ export function newUnit(unitType = 'apartment') {
     spot: '',
     roomCount: unitType === 'apartment' ? 2 : '',
     totalAreaSqM: '',
+    // Характеристики карточки. Пустые по умолчанию: заполняется тем, что есть — собственник
+    // отдаёт их не разом, и половина полей приходит уже после регистрации объекта.
+    usableAreaSqM: '',
+    documentedUse: '',
+    buildingClass: '',
+    wallMaterial: '',
+    heating: '',
+    elevator: '',
+    security: '',
+    parking: '',
+    // Проверка Кадастра: null — не проверяли. Отдельно от «обременений нет».
+    isFreeOfEncumbrances: null,
     description: '',
     rooms: (ROOM_PRESETS[unitType] || []).map((name) => ({ name, areaSqM: '' })),
     tokenPrice: 1000,
@@ -84,6 +116,8 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
   const totalArea = num(unit.totalAreaSqM);
   // Deliberately a warning, never a block: a plan legitimately disagrees with the sellable area.
   const areaMismatch = totalArea > 0 && roomsSum > 0 && Math.abs(totalArea - roomsSum) > 0.01;
+  // Полезная не может быть больше общей — это правило домена, а не оформление.
+  const usableOverTotal = totalArea > 0 && num(unit.usableAreaSqM) > totalArea;
 
   const setRoom = (i, fields) =>
     patch({ rooms: unit.rooms.map((r, ri) => (ri === i ? { ...r, ...fields } : r)) });
@@ -257,7 +291,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
         <div className="sm:col-span-2">
           <label className={labelClass}>Название (необязательно)</label>
           <input
@@ -281,7 +315,24 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
             className={`${inputClass} font-mono`}
           />
         </div>
+        <div>
+          <label className={labelClass}>Полезная площадь, м²</label>
+          <input
+            type="number" min="0" step="0.01" placeholder={isParking ? '15.2' : '112.40'}
+            value={unit.usableAreaSqM ?? ''}
+            onChange={(e) => patch({ usableAreaSqM: e.target.value })}
+            className={`${inputClass} font-mono ${usableOverTotal ? 'border-red-400' : ''}`}
+          />
+        </div>
       </div>
+
+      {/* Предупреждение, а не блокировка ввода: бэкенд всё равно отклонит такое сохранение, но
+          сказать об этом лучше здесь, пока админ смотрит на оба поля. */}
+      {usableOverTotal && (
+        <p className="text-[9px] text-red-500 font-bold uppercase tracking-wider -mt-2">
+          Полезная площадь больше общей — бэкенд не примет
+        </p>
+      )}
 
       {/* Room breakdown. A garage or a parking space has nothing to break down, so the whole
           table is hidden for those rather than shown empty. */}
@@ -349,6 +400,67 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
           )}
         </div>
       )}
+
+      {/* Характеристики карточки. Всё необязательно и заполняется тем, что есть: собственник
+          отдаёт эти поля не разом, а часть — только после проектной документации. */}
+      <div className="border-t border-gray-200 pt-3">
+        <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+          Характеристики объекта
+        </span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Назначение по документам</label>
+            {/* Отдельно от типа недвижимости: тип — фильтр каталога, а здесь то, что написано
+                в правоустанавливающих. Они расходятся чаще, чем кажется. */}
+            <input
+              type="text" placeholder="Под индивидуальное жилищное строительство"
+              value={unit.documentedUse ?? ''}
+              onChange={(e) => patch({ documentedUse: e.target.value })}
+              className={inputClass}
+            />
+          </div>
+          {CHARACTERISTIC_FIELDS.map(({ key, label, placeholder }) => (
+            <div key={key}>
+              <label className={labelClass}>{label}</label>
+              <input
+                type="text" placeholder={placeholder}
+                value={unit[key] ?? ''}
+                onChange={(e) => patch({ [key]: e.target.value })}
+                className={inputClass}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Проверка Кадастра. Три состояния, а не галочка: «не проверяли» — это не «обременений
+            нет», и по умолчанию объект не должен утверждать, что он чист. */}
+        <div className="mt-3">
+          <label className={labelClass}>Обременения и аресты (по данным Кадастра)</label>
+          <div className="flex flex-wrap gap-2">
+            {ENCUMBRANCE_CHOICES.map(({ value, label, tone }) => {
+              const active = unit.isFreeOfEncumbrances === value;
+              return (
+                <button
+                  key={String(value)}
+                  type="button"
+                  onClick={() => patch({ isFreeOfEncumbrances: value })}
+                  className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
+                    active ? tone : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {unit.isFreeOfEncumbrances === false && (
+            <p className="mt-1.5 text-[9px] font-mono text-amber-600">
+              Объект с обременением показывается инвестору как есть — снимать его с витрины
+              вручную не нужно, но проверьте, можно ли его вообще размещать.
+            </p>
+          )}
+        </div>
+      </div>
 
       {/* Issue — per unit */}
       <div className="border-t border-gray-200 pt-3">

@@ -12,7 +12,15 @@ import {
   isParkingUnitType,
   formatParkingSpot,
 } from '../api/mappers';
-import { UnitCard, RoomBreakdown, newUnit } from './UnitEditor';
+import {
+  UnitCard,
+  RoomBreakdown,
+  newUnit,
+  // Те же таблицы, что и в карточке помещения: два списка полей разошлись бы при первой же
+  // правке, и объект, заведённый через один экран, редактировался бы через другой с потерей поля.
+  CHARACTERISTIC_FIELDS as PROPERTY_CHARACTERISTICS,
+  ENCUMBRANCE_CHOICES as ENCUMBRANCE_STATES,
+} from './UnitEditor';
 import { safeUrl } from '../utils';
 import {
   Building, 
@@ -413,6 +421,12 @@ export default function PropertiesList({
     setShowFormModal(true);
   };
 
+  // Полезная площадь больше общей — домен это отклонит. Считаем здесь, чтобы сказать об этом
+  // рядом с полем, а не сообщением об ошибке после отправки.
+  const editUsableOverTotal =
+    Number(formData.totalAreaSqM) > 0 &&
+    Number(formData.usableAreaSqM) > Number(formData.totalAreaSqM);
+
   const handleOpenEdit = (prop, e) => {
     e.stopPropagation();
     setFormMode('edit');
@@ -428,6 +442,21 @@ export default function PropertiesList({
       spot: prop.spot || '',
       roomCount: prop.roomCount ?? '',
       totalAreaSqM: prop.totalAreaSqM ?? '',
+      // Характеристики карточки: null из API -> '' для контролируемых полей.
+      usableAreaSqM: prop.usableAreaSqM ?? '',
+      documentedUse: prop.documentedUse || '',
+      buildingClass: prop.buildingClass || '',
+      wallMaterial: prop.wallMaterial || '',
+      heating: prop.heating || '',
+      elevator: prop.elevator || '',
+      security: prop.security || '',
+      parking: prop.parking || '',
+      // Три состояния, undefined из старой записи приводим к «не проверяли».
+      isFreeOfEncumbrances:
+        prop.isFreeOfEncumbrances === true || prop.isFreeOfEncumbrances === false
+          ? prop.isFreeOfEncumbrances
+          : null,
+      encumbranceCheckedAtUtc: prop.encumbranceCheckedAtUtc || null,
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
     });
     setFormUnits([]);
@@ -2206,6 +2235,76 @@ export default function PropertiesList({
                           className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                         />
                       </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Полезная площадь, м²</label>
+                        {/* Бэкенд отклонит полезную больше общей — предупреждаем на месте ввода. */}
+                        <input
+                          type="number" min="0" step="0.01" placeholder="112.40"
+                          value={formData.usableAreaSqM ?? ''}
+                          onChange={(e) => setFormData({ ...formData, usableAreaSqM: e.target.value })}
+                          className={`w-full p-2 border rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono ${
+                            editUsableOverTotal ? 'border-red-400' : 'border-gray-200'
+                          }`}
+                        />
+                        {editUsableOverTotal && (
+                          <p className="mt-1 text-[9px] font-bold uppercase tracking-wider text-red-500">
+                            Больше общей — не сохранится
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Характеристики карточки (Блок А). Всё необязательно: заполняется тем, что
+                        есть на руках, и дополняется по мере поступления от собственника. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="sm:col-span-3">
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Назначение по документам</label>
+                        <input
+                          type="text" placeholder="Под индивидуальное жилищное строительство"
+                          value={formData.documentedUse ?? ''}
+                          onChange={(e) => setFormData({ ...formData, documentedUse: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                        />
+                      </div>
+                      {PROPERTY_CHARACTERISTICS.map(({ key, label, placeholder }) => (
+                        <div key={key}>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">{label}</label>
+                          <input
+                            type="text" placeholder={placeholder}
+                            value={formData[key] ?? ''}
+                            onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
+                            className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                          />
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Проверка Кадастра: «не проверяли» — отдельное состояние, а не отсутствие
+                        галочки, чтобы объект по умолчанию не заявлял, что он свободен. */}
+                    <div>
+                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Обременения и аресты (по данным Кадастра)</label>
+                      <div className="flex flex-wrap gap-2">
+                        {ENCUMBRANCE_STATES.map(({ value, label, tone }) => {
+                          const active = formData.isFreeOfEncumbrances === value;
+                          return (
+                            <button
+                              key={String(value)}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, isFreeOfEncumbrances: value })}
+                              className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
+                                active ? tone : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {formData.encumbranceCheckedAtUtc && formData.isFreeOfEncumbrances != null && (
+                        <p className="mt-1 text-[9px] font-mono text-gray-400">
+                          Проверено: {new Date(formData.encumbranceCheckedAtUtc).toLocaleDateString('ru-RU')}
+                        </p>
+                      )}
                     </div>
 
                     {/* Разбивка по помещениям: список заменяется целиком при сохранении. */}
