@@ -151,7 +151,7 @@ jobs:
           # the password stops being consulted the moment a key exists.
           #
           # SECURITY: a password on the production host is the weakest link in this pipeline. The
-          # same session carries POSTGRES_PASSWORD, DIDIT_API_KEY and NIKITA_PRO_API_KEY to the
+          # same session carries POSTGRES_PASSWORD and DIDIT_API_KEY to the
           # server, so whoever holds it holds those too. Finding M-14 of the 2026-08-04 review stays
           # OPEN until a key is issued and `PasswordAuthentication no` is set on the host.
           key: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -172,7 +172,7 @@ jobs:
           # the password stops being consulted the moment a key exists.
           #
           # SECURITY: a password on the production host is the weakest link in this pipeline. The
-          # same session carries POSTGRES_PASSWORD, DIDIT_API_KEY and NIKITA_PRO_API_KEY to the
+          # same session carries POSTGRES_PASSWORD and DIDIT_API_KEY to the
           # server, so whoever holds it holds those too. Finding M-14 of the 2026-08-04 review stays
           # OPEN until a key is issued and `PasswordAuthentication no` is set on the host.
           key: ${{ secrets.DEPLOY_SSH_KEY }}
