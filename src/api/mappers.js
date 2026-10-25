@@ -140,6 +140,8 @@ export function mapPropertyFromApi(p) {
     // Блок о районе: инфраструктура, транспорт, окружение. Отдельно от description —
     // описание продаёт сам объект, а это про то, что вокруг него.
     locationDescription: p.locationDescription || '',
+    // Кто сдаёт и обслуживает объект. Не застройщик: строит одна компания, сдаёт часто другая.
+    managementCompany: p.managementCompany || '',
 
     // Земельный участок и стройка. Гектары участка держим отдельно от totalAreaSqM: это площадь
     // земли, а не продаваемая площадь пола, и делить её на доли нельзя.
@@ -150,6 +152,7 @@ export function mapPropertyFromApi(p) {
     constructionStage:
       p.constructionStage && p.constructionStage !== 'unspecified' ? p.constructionStage : '',
     plannedCompletionDate: p.plannedCompletionDate || null,
+    plannedCompletionPrecision: p.plannedCompletionPrecision || 'day',
     readinessPercent: p.readinessPercent ?? null,
     // Проверка Кадастра. null — «не проверяли», и это не то же самое, что «обременений нет».
     isFreeOfEncumbrances: p.isFreeOfEncumbrances ?? null,
@@ -821,6 +824,7 @@ function characteristicFields(form) {
     security: text(form.security),
     parking: text(form.parking),
     locationDescription: text(form.locationDescription),
+    managementCompany: text(form.managementCompany),
   };
 }
 
@@ -842,6 +846,7 @@ function landAndCadastreFields(form) {
     cadastralNumber: text(form.cadastralNumber),
     constructionStage: form.constructionStage || null,
     plannedCompletionDate: form.plannedCompletionDate || null,
+    plannedCompletionPrecision: form.plannedCompletionPrecision || null,
     readinessPercent: numOrNull(form.readinessPercent),
   };
 }
@@ -913,6 +918,34 @@ export const CONSTRUCTION_STAGE_LABELS = {
   under_construction: 'Строительство',
   commissioned: 'Введён в эксплуатацию',
 };
+
+/**
+ * Насколько точно застройщик назвал срок ввода. «4 квартал 2027» хранится какой-то датой, но
+ * показывать её как «31.12.2027» значит обещать инвестору точность, которой никто не давал.
+ */
+export const COMPLETION_PRECISIONS = [
+  { value: 'day', label: 'Точная дата' },
+  { value: 'month', label: 'Месяц' },
+  { value: 'quarter', label: 'Квартал' },
+  { value: 'year', label: 'Год' },
+];
+
+const QUARTERS = ['I', 'II', 'III', 'IV'];
+
+/** Плановый ввод с той точностью, с какой его назвали. null — даты нет или она нечитаема. */
+export function formatPlannedCompletion(value, precision) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  // UTC: дата приходит полуночью UTC, и в западном поясе 1 октября иначе стало бы III кварталом.
+  const year = d.getUTCFullYear();
+  switch (precision) {
+    case 'year': return String(year);
+    case 'quarter': return `${QUARTERS[Math.floor(d.getUTCMonth() / 3)]} квартал ${year}`;
+    case 'month': return d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    default: return d.toLocaleDateString('ru-RU', { timeZone: 'UTC' });
+  }
+}
 
 /**
  * Три вида помещений, как их называет админ, и типы бэкенда за каждым.

@@ -5,6 +5,7 @@ import api from '../api';
 import {
   UNIT_TYPE_LABELS,
   CONSTRUCTION_STAGE_LABELS,
+  formatPlannedCompletion,
   mapHolderFromInvestment,
   isParkingUnitType,
   formatParkingSpot,
@@ -382,7 +383,8 @@ export default function PropertyDetailPanel({ property, buildingName = '', onClo
                     />
                     <Metric
                       label="Плановый ввод"
-                      value={formatDate(property.plannedCompletionDate)}
+                      value={formatPlannedCompletion(
+                        property.plannedCompletionDate, property.plannedCompletionPrecision) || '—'}
                     />
                     <Metric
                       label="Готовность"

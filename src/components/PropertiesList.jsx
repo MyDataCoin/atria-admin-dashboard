@@ -26,6 +26,7 @@ import {
   DOCUMENT_CATEGORIES,
   DOCUMENT_CATEGORY_LABELS,
   CONSTRUCTION_STAGE_LABELS,
+  COMPLETION_PRECISIONS,
 } from '../api/mappers';
 import PlacementPanel from './PlacementPanel';
 import { safeUrl } from '../utils';
@@ -458,6 +459,7 @@ export default function PropertiesList({
       elevator: prop.elevator || '',
       security: prop.security || '',
       parking: prop.parking || '',
+      managementCompany: prop.managementCompany || '',
       // Три состояния, undefined из старой записи приводим к «не проверяли».
       isFreeOfEncumbrances:
         prop.isFreeOfEncumbrances === true || prop.isFreeOfEncumbrances === false
@@ -473,6 +475,7 @@ export default function PropertiesList({
       constructionStage: prop.constructionStage || '',
       // <input type="date"> принимает только YYYY-MM-DD, ISO с временем он молча отвергает.
       plannedCompletionDate: (prop.plannedCompletionDate || '').slice(0, 10),
+      plannedCompletionPrecision: prop.plannedCompletionPrecision || 'day',
       readinessPercent: prop.readinessPercent ?? '',
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
     });
@@ -2426,6 +2429,18 @@ export default function PropertiesList({
                           onChange={(e) => setFormData({ ...formData, plannedCompletionDate: e.target.value })}
                           className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                         />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Точность срока</label>
+                        <select
+                          value={formData.plannedCompletionPrecision || 'day'}
+                          onChange={(e) => setFormData({ ...formData, plannedCompletionPrecision: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                        >
+                          {COMPLETION_PRECISIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
                       </div>
                       <div>
                         <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Готовность, %</label>

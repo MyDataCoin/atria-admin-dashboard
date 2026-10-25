@@ -7,6 +7,7 @@ import {
   minPurchaseTokensFrom,
   PAYOUT_FREQUENCIES,
   CONSTRUCTION_STAGE_LABELS,
+  COMPLETION_PRECISIONS,
 } from '../api/mappers';
 
 // Max photos per unit — mirrors Property.MaxImages on the backend.
@@ -46,6 +47,7 @@ export const CHARACTERISTIC_FIELDS = [
   { key: 'elevator', label: 'Лифт', placeholder: 'Два пассажирских, один грузовой' },
   { key: 'security', label: 'Охрана', placeholder: 'Круглосуточная, видеонаблюдение' },
   { key: 'parking', label: 'Парковка', placeholder: 'Подземная, 120 мест' },
+  { key: 'managementCompany', label: 'Управляющая компания', placeholder: 'Сдача в аренду, обслуживание' },
 ];
 
 // null — «не проверяли». Держим третьим состоянием, а не отсутствием выбора, чтобы админ мог
@@ -79,6 +81,7 @@ export function newUnit(unitType = 'apartment') {
     elevator: '',
     security: '',
     parking: '',
+    managementCompany: '',
     // Проверка Кадастра: null — не проверяли. Отдельно от «обременений нет».
     isFreeOfEncumbrances: null,
     // Периодичность выплат. Пусто — не задана: до ввода в эксплуатацию выпуск всё равно
@@ -93,6 +96,7 @@ export function newUnit(unitType = 'apartment') {
     cadastralNumber: '',
     constructionStage: '',
     plannedCompletionDate: '',
+    plannedCompletionPrecision: 'day',
     readinessPercent: '',
     description: '',
     rooms: (ROOM_PRESETS[unitType] || []).map((name) => ({ name, areaSqM: '' })),
@@ -566,6 +570,19 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
               onChange={(e) => patch({ plannedCompletionDate: e.target.value })}
               className={`${inputClass} font-mono`}
             />
+          </div>
+          <div>
+            {/* «4 квартал 2027» — любой день квартала плюс «Квартал». */}
+            <label className={labelClass}>Точность срока</label>
+            <select
+              value={unit.plannedCompletionPrecision || 'day'}
+              onChange={(e) => patch({ plannedCompletionPrecision: e.target.value })}
+              className={inputClass}
+            >
+              {COMPLETION_PRECISIONS.map(({ value, label }) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
           </div>
           <div>
             <label className={labelClass}>Готовность, %</label>
