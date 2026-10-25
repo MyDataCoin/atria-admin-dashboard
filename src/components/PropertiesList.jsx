@@ -314,7 +314,9 @@ export default function PropertiesList({
   
   // Create / Edit modal state
   const [showFormModal, setShowFormModal] = useState(false);
-  const [formMode, setFormMode] = useState('create'); // create, edit, addUnits
+  const [formMode, setFormMode] = useState('create'); // create, edit, addUnits, editBuilding
+  // Форма про здание (регистрация или правка), а не про отдельное помещение.
+  const isBuildingForm = formMode === 'create' || formMode === 'editBuilding';
   // Здание, в которое доводятся помещения в режиме addUnits. Держим объект целиком, а не только id:
   // mapUnitToCreateRequest берёт из него город, застройщика и год — помещение наследует их у здания.
   const [unitsTarget, setUnitsTarget] = useState(null);
@@ -870,7 +872,17 @@ export default function PropertiesList({
       reportProgress('Сохраняем здание…');
       try {
         await api.buildings.update(formData.id, mapBuildingToUpdateRequest(formData));
-        onAddLog('Property Asset Updated', `Изменено здание "${formData.name}".`);
+        // Новые помещения — тем же путём, что при регистрации здания; наследуют уже
+        // сохранённые данные здания из формы.
+        const { createdUnitIds, failedUnitDocs } = formUnits.length
+          ? await createUnitsAsync(formUnits, formData, formData.id, formData.status)
+          : { createdUnitIds: [], failedUnitDocs: [] };
+        onAddLog(
+          'Property Asset Updated',
+          `Изменено здание "${formData.name}"` +
+            (createdUnitIds.length ? `, добавлено помещений: ${createdUnitIds.length}` : '') +
+            (failedUnitDocs.length ? `. Не загрузились: ${failedUnitDocs.join(', ')}` : '') + '.'
+        );
         setShowFormModal(false);
         setUnitsTarget(null);
         if (onRefreshProperties) await onRefreshProperties();
@@ -1009,13 +1021,7 @@ export default function PropertiesList({
         setShowFormModal(false);
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
-        setSaveError(
-          err?.status === 409
-            ? 'Конфликт на сервере (статус объекта или параллельное изменение) — обновите страницу и попробуйте снова.'
-            : err?.status === 413
-              ? 'Файл слишком большой для сервера — уменьшите фото или поднимите лимит на бэке (nginx client_max_body_size)'
-              : (err?.problem?.detail || err?.message || 'Не удалось сохранить изменения на сервере')
-        );
+        setSaveError(describeSaveError(err, saveStepRef.current, 'Не удалось сохранить изменения на сервере'));
       } finally {
         setSaving(false);
       }
@@ -1156,6 +1162,12 @@ export default function PropertiesList({
       .filter((g) => g.units.length > 0 || statusFilter === 'all');
     return { groups, standalone };
   }, [properties, buildings, buildingNames, statusFilter]);
+
+  // Помещения здания, открытого на правку, — все, без фильтра по статусу.
+  const editBuildingUnits = useMemo(
+    () => (formMode === 'editBuilding' ? properties.filter((p) => p.buildingId === formData.id) : []),
+    [formMode, formData.id, properties],
+  );
 
   // Everything registered inside the open building — deliberately ignoring the status filter, so the
   // building card is the full passport of the object (that is what a brochure is generated from).
@@ -1510,7 +1522,7 @@ export default function PropertiesList({
                       title="Изменить данные здания. Доступно, пока помещения не открыты к продаже"
                     >
                       <Edit3 size={11} />
-                      <span>Изменить</span>
+                      <span>Изменить здание</span>
                     </button>
                   )}
                   {/* Довести помещение в уже готовое здание — гараж, ещё одну квартиру. */}
@@ -2112,8 +2124,15 @@ export default function PropertiesList({
                       ? `Добавить помещения — ${unitsTarget?.name || ''}`
                       : formMode === 'editBuilding'
                         ? `Редактировать здание — ${unitsTarget?.name || ''}`
-                        : 'Редактировать параметры актива'}
+                        : `Редактировать помещение — ${formData.name || ''}`}
                 </h3>
+                {/* Помещение правится отдельно от здания: город, адрес, застройщик, этажность и
+                    состояние стройки — у здания, кнопка «Изменить» в его шапке. */}
+                {formMode === 'edit' && formData.buildingId && (
+                  <p className="text-[10px] text-gray-500 mt-1">
+                    Здание: {buildingNames[formData.buildingId] || '—'}. Данные здания меняются в карточке здания.
+                  </p>
+                )}
               </div>
 
               <form onSubmit={handleSaveForm} className="space-y-4 text-xs">
@@ -2125,15 +2144,18 @@ export default function PropertiesList({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
-                      {formMode === 'create' || formMode === 'editBuilding' ? 'Название здания' : 'Название'}
+                      {isBuildingForm ? 'Название здания' : 'Название помещения'}
                     </label>
                     <input 
-                      type="text" required placeholder={formMode === 'create' ? 'Например: ЖК Ала-Тоо, блок B' : 'Например: Вилла Малибу'}
+                      type="text" required placeholder={isBuildingForm ? 'Например: ЖК Ала-Тоо, блок B' : 'Например: Офис 12'}
                       value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                     />
                   </div>
 
+                  {/* Дальше — поля здания. У помещения их нет: бэкенд берёт их со здания, и при
+                      правке помещения они никуда не отправлялись — правка молча терялась. */}
+                  {isBuildingForm && (<>
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Тип недвижимости</label>
                     <select
@@ -2157,22 +2179,24 @@ export default function PropertiesList({
                   </div>
 
                   {/* У строящегося здания года постройки ещё нет — вместо него срок ввода ниже. */}
-                  {!((formMode === 'create' || formMode === 'editBuilding') && formData.buildStatus === 'under_construction') && (
+                  {formData.buildStatus !== 'under_construction' && (
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
                     <input
                       type="number" min="1800" max="2100" placeholder="Например: 2020"
-                      value={formData.completionYear ?? ''} onChange={(e) => setFormData({...formData, completionYear: Number(e.target.value)})}
+                      value={formData.completionYear ?? ''} onChange={(e) => setFormData({...formData, completionYear: e.target.value})}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                     />
                   </div>
                   )}
+                  </>)}
                 </div>
                 )}
 
                 {/* Address, Developer, Floors, Description */}
                 {formMode !== 'addUnits' && (
                 <div className="space-y-4">
+                  {isBuildingForm && (<>
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес объекта</label>
                     <div className="relative">
@@ -2224,15 +2248,16 @@ export default function PropertiesList({
                       <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Этажность</label>
                       <input
                         type="number" min="1" placeholder="Например: 5"
-                        value={formData.floors ?? ''} onChange={(e) => setFormData({...formData, floors: Number(e.target.value)})}
+                        value={formData.floors ?? ''} onChange={(e) => setFormData({...formData, floors: e.target.value})}
                         className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                       />
                     </div>
                   </div>
+                  </>)}
 
                   {/* Состояние здания — только при регистрации здания. Помещения наследуют всё это,
                       если у самого помещения своё значение не указано. */}
-                  {(formMode === 'create' || formMode === 'editBuilding') && (
+                  {isBuildingForm && (
                     <div className="space-y-4 border border-gray-100 rounded p-3 bg-[#FAF8F3]/40">
                       <div>
                         <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Здание</label>
@@ -2361,7 +2386,9 @@ export default function PropertiesList({
                   )}
 
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Описание объекта</label>
+                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                      {isBuildingForm ? 'Описание здания' : 'Описание помещения'}
+                    </label>
                     <textarea
                       rows={3} placeholder="Краткое описание объекта, его особенности и инвестиционная привлекательность..."
                       value={formData.description || ''} onChange={(e) => setFormData({...formData, description: e.target.value})}
@@ -2371,14 +2398,17 @@ export default function PropertiesList({
                 </div>
                 )}
 
-                {/* Status (экономика задаётся в параметрах выпуска). У здания своего статуса нет. */}
-                {formMode !== 'editBuilding' && (
+                {/* Status (экономика задаётся в параметрах выпуска). У здания своего статуса нет —
+                    при правке здания он нужен только новым помещениям, если их добавляют. */}
+                {(formMode !== 'editBuilding' || formUnits.length > 0) && (
                 <div className="border-t border-gray-100 pt-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
-                      {formMode === 'create' || formMode === 'addUnits'
-                        ? 'Стартовый статус помещений'
-                        : 'Статус объекта'}
+                      {formMode === 'editBuilding'
+                        ? 'Стартовый статус новых помещений'
+                        : formMode === 'create' || formMode === 'addUnits'
+                          ? 'Стартовый статус помещений'
+                          : 'Статус помещения'}
                     </label>
                     <select
                       value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})}
@@ -2393,17 +2423,54 @@ export default function PropertiesList({
                 </div>
                 )}
 
+                {/* Помещения, которые уже есть в здании, — при его правке. Каждое правится своей
+                    формой: у помещения свой выпуск, свои фото и документы. */}
+                {formMode === 'editBuilding' && (
+                  <div className="border-t border-gray-100 pt-4">
+                    <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                      Помещения в здании ({editBuildingUnits.length})
+                    </span>
+                    {editBuildingUnits.length === 0 ? (
+                      <p className="text-[10px] text-gray-400 font-mono">Помещений пока нет — добавьте ниже.</p>
+                    ) : (
+                      <div className="divide-y divide-gray-100 border border-gray-100 rounded">
+                        {editBuildingUnits.map((u) => (
+                          <div key={u.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                              <span className="block text-[11px] font-bold text-gray-900 truncate">{u.name}</span>
+                              <span className="block text-[9px] font-mono text-gray-500">
+                                {[UNIT_TYPE_LABELS[u.unitType], u.totalAreaSqM ? `${u.totalAreaSqM} м²` : null,
+                                  STATUS_LABELS[u.status] || u.status].filter(Boolean).join(' · ')}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              // Переход к форме помещения. Несохранённые правки здания при этом теряются —
+                              // сохраните здание до перехода.
+                              onClick={(e) => handleOpenEdit(u, e)}
+                              className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[#A38D6D] hover:border-[#A38D6D] px-2.5 py-1 rounded text-[9px] uppercase font-bold tracking-wider cursor-pointer shrink-0"
+                            >
+                              <Edit3 size={10} />
+                              <span>Изменить</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Помещения внутри здания. Каждое — отдельный выпуск токенов на бэке. */}
-                {(formMode === 'create' || formMode === 'addUnits') && (
+                {(formMode === 'create' || formMode === 'addUnits' || formMode === 'editBuilding') && (
                   <div className="border-t border-gray-100 pt-4">
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
-                          {formMode === 'addUnits' ? 'Новые помещения' : 'Помещения в объекте (обязательно)'}
+                          {formMode === 'create' ? 'Помещения в объекте (обязательно)' : 'Новые помещения'}
                         </span>
                         <p className="text-[9px] text-gray-400 font-mono mt-1">
-                          {formMode === 'addUnits'
-                            ? 'Добавятся к тем, что уже есть в здании. Город, застройщик и год берутся из карточки здания.'
+                          {formMode !== 'create'
+                            ? 'Добавятся к тем, что уже есть в здании. Город, застройщик, стадия и галочки берутся из карточки здания.'
                             : 'Здание само токенов не выпускает — выпуск идёт на каждую квартиру и гараж отдельно.'}
                         </p>
                       </div>
@@ -3013,7 +3080,7 @@ export default function PropertiesList({
                         : formMode === 'addUnits'
                           ? `Добавить ${formUnits.length} помещ.`
                           : formMode === 'editBuilding'
-                            ? 'Сохранить здание'
+                            ? `Сохранить здание${formUnits.length ? ` и добавить ${formUnits.length} помещ.` : ''}`
                             : 'Сохранить изменения'}
                   </button>
                 </div>
@@ -3143,6 +3210,17 @@ export default function PropertiesList({
                     <h4 className="text-sm font-serif font-bold text-gray-900">
                       Помещения ({selectedBuildingUnits.length})
                     </h4>
+                    <div className="flex items-center gap-2 shrink-0">
+                    {selectedBuilding.isEditable && (
+                      <button
+                        type="button"
+                        onClick={(e) => { const b = selectedBuilding; setSelectedBuilding(null); handleOpenEditBuilding(b, e); }}
+                        className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[#A38D6D] hover:border-[#A38D6D] px-2.5 py-1.5 rounded text-[9px] uppercase font-bold tracking-wider cursor-pointer shrink-0"
+                      >
+                        <Edit3 size={11} />
+                        <span>Изменить здание</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => { const b = selectedBuilding; setSelectedBuilding(null); handleOpenAddUnits(b, e); }}
@@ -3151,6 +3229,7 @@ export default function PropertiesList({
                       <Plus size={11} />
                       <span>Добавить</span>
                     </button>
+                    </div>
                   </div>
                   {selectedBuildingUnits.length === 0 ? (
                     <p className="text-[11px] text-gray-400 font-mono">В этом здании ещё нет помещений.</p>
