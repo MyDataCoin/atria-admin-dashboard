@@ -40,14 +40,17 @@ const ROOM_PRESETS = {
 // Свободный текст, а не справочники: «монолит-кирпич», «автономное газовое», «два пассажирских,
 // один грузовой» — собственник пишет так, как написано в его документах, и загонять это в
 // перечисление значит терять половину ответа.
+// Длины — ширина колонок на бэкенде (PropertyFieldLimits). Длиннее сервер не примет.
+export const LOCATION_MAX_LENGTH = 2048;
+
 export const CHARACTERISTIC_FIELDS = [
-  { key: 'buildingClass', label: 'Класс объекта', placeholder: 'Бизнес / Комфорт' },
-  { key: 'wallMaterial', label: 'Материал', placeholder: 'Монолит-кирпич' },
-  { key: 'heating', label: 'Отопление', placeholder: 'Центральное / Автономное газовое' },
-  { key: 'elevator', label: 'Лифт', placeholder: 'Два пассажирских, один грузовой' },
-  { key: 'security', label: 'Охрана', placeholder: 'Круглосуточная, видеонаблюдение' },
-  { key: 'parking', label: 'Парковка', placeholder: 'Подземная, 120 мест' },
-  { key: 'managementCompany', label: 'Управляющая компания', placeholder: 'Сдача в аренду, обслуживание' },
+  { key: 'buildingClass', label: 'Класс объекта', placeholder: 'Бизнес / Комфорт', maxLength: 64 },
+  { key: 'wallMaterial', label: 'Материал', placeholder: 'Монолит-кирпич', maxLength: 128 },
+  { key: 'heating', label: 'Отопление', placeholder: 'Центральное / Автономное газовое', maxLength: 128 },
+  { key: 'elevator', label: 'Лифт', placeholder: 'Два пассажирских, один грузовой', maxLength: 128 },
+  { key: 'security', label: 'Охрана', placeholder: 'Круглосуточная, видеонаблюдение', maxLength: 128 },
+  { key: 'parking', label: 'Парковка', placeholder: 'Подземная, 120 мест', maxLength: 256 },
+  { key: 'managementCompany', label: 'Управляющая компания', placeholder: 'Сдача в аренду, обслуживание', maxLength: 256 },
 ];
 
 // null — «не проверяли». Держим третьим состоянием, а не отсутствием выбора, чтобы админ мог
@@ -438,16 +441,17 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
                 в правоустанавливающих. Они расходятся чаще, чем кажется. */}
             <input
               type="text" placeholder="Под индивидуальное жилищное строительство"
+              maxLength={256}
               value={unit.documentedUse ?? ''}
               onChange={(e) => patch({ documentedUse: e.target.value })}
               className={inputClass}
             />
           </div>
-          {CHARACTERISTIC_FIELDS.map(({ key, label, placeholder }) => (
+          {CHARACTERISTIC_FIELDS.map(({ key, label, placeholder, maxLength }) => (
             <div key={key}>
               <label className={labelClass}>{label}</label>
               <input
-                type="text" placeholder={placeholder}
+                type="text" placeholder={placeholder} maxLength={maxLength}
                 value={unit[key] ?? ''}
                 onChange={(e) => patch({ [key]: e.target.value })}
                 className={inputClass}
@@ -461,6 +465,7 @@ export function UnitCard({ unit, index, onChange, onRemove, currencyLabel = 'с�
             <textarea
               rows={3}
               placeholder="Южная часть города, рядом центральные инфраструктуры, транспортная доступность…"
+              maxLength={LOCATION_MAX_LENGTH}
               value={unit.locationDescription ?? ''}
               onChange={(e) => patch({ locationDescription: e.target.value })}
               className={`${inputClass} resize-y`}

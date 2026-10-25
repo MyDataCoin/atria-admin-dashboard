@@ -20,6 +20,7 @@ import {
   // правке, и объект, заведённый через один экран, редактировался бы через другой с потерей поля.
   CHARACTERISTIC_FIELDS as PROPERTY_CHARACTERISTICS,
   ENCUMBRANCE_CHOICES as ENCUMBRANCE_STATES,
+  LOCATION_MAX_LENGTH,
 } from './UnitEditor';
 import {
   PAYOUT_FREQUENCIES as PAYOUT_FREQUENCY_OPTIONS,
@@ -127,6 +128,26 @@ function formatMoney(amount, currencyCode = 'KGS') {
   return `${n} ${currencyCode}`;
 }
 
+/**
+ * Текст ошибки сохранения: на каком шаге упало и что ответил сервер.
+ *
+ * Раньше любой 409 подписывался как «конфликт в AddPropertyImageCommand», хотя сервер отдаёт 409
+ * и на любую ошибку записи в базу — например, слишком длинное значение поля. Подпись указывала
+ * не туда, куда надо смотреть. Теперь видно шаг, ответ сервера и correlationId для поиска в логах.
+ */
+function describeSaveError(err, step, fallback) {
+  const status = err?.status;
+  const reason =
+    status === 401 ? 'нужен вход администратора (нет или просрочен токен)'
+      : status === 403 ? 'недостаточно прав (нужна роль Admin)'
+        : status === 413 ? 'файл слишком большой для сервера — уменьшите его или поднимите client_max_body_size в nginx'
+          : (err?.problem?.detail || err?.problem?.title || err?.message || fallback);
+  const where = step ? ` Шаг: ${step.replace(/…$/, '')}.` : '';
+  const code = status ? ` [${status}]` : '';
+  const trace = err?.correlationId ? ` correlationId: ${err.correlationId}` : '';
+  return `${reason}${code}.${where}${trace}`;
+}
+
 export default function PropertiesList({
   properties,
   setProperties,
@@ -145,6 +166,12 @@ export default function PropertiesList({
   const [formUnits, setFormUnits] = useState([]);
   // Progress line while the create flow walks building -> photos -> unit 1 -> unit 2 -> …
   const [saveProgress, setSaveProgress] = useState('');
+  // Последний шаг сохранения — чтобы в ошибке было видно, ГДЕ упало, а не только код ответа.
+  const saveStepRef = useRef('');
+  const reportProgress = (text) => {
+    if (text) saveStepRef.current = text;
+    setSaveProgress(text);
+  };
   // Every building (ЖК / здание) from GET /buildings. The list groups units under their building,
   // so we need the whole DTO here, not just the name: GET /properties carries only buildingId.
   const [buildings, setBuildings] = useState([]);
@@ -439,7 +466,7 @@ export default function PropertiesList({
     setFormUnits([newUnit('apartment')]);
     setFormDocs([]);
     setSaveError('');
-    setSaveProgress('');
+    reportProgress('');
     setShowFormModal(true);
   };
 
@@ -717,7 +744,7 @@ export default function PropertiesList({
     for (let i = 0; i < units.length; i++) {
       const unit = units[i];
       const label = `${UNIT_TYPE_LABELS[unit.unitType] || 'Помещение'}${unit.unitNumber ? ` №${unit.unitNumber}` : ''}`;
-      setSaveProgress(`Создаём помещение ${i + 1} из ${units.length}: ${label}…`);
+      reportProgress(`Создаём помещение ${i + 1} из ${units.length}: ${label}…`);
 
       const unitId = await api.properties.create(
         mapUnitToCreateRequest(unit, buildingLike, buildingId));
@@ -725,7 +752,7 @@ export default function PropertiesList({
 
       const unitFiles = (unit.imageFiles || []).slice(0, MAX_IMAGES);
       if (unitFiles.length) {
-        setSaveProgress(`Фото помещения ${i + 1} (${unitFiles.length})…`);
+        reportProgress(`Фото помещения ${i + 1} (${unitFiles.length})…`);
         await uploadImages(unitId, unitFiles);
       }
 
@@ -733,7 +760,7 @@ export default function PropertiesList({
       // собственный выпуск, а не в общий пакет здания: у каждого помещения он свой.
       const unitDocs = unit.docFiles || [];
       if (unitDocs.length) {
-        setSaveProgress(`Документы помещения ${i + 1} (${unitDocs.length})…`);
+        reportProgress(`Документы помещения ${i + 1} (${unitDocs.length})…`);
         for (const file of unitDocs) {
           try {
             await api.properties.uploadDocument(unitId, file, file.name);
@@ -756,6 +783,7 @@ export default function PropertiesList({
 
   const handleSaveForm = async (e) => {
     e.preventDefault();
+    saveStepRef.current = '';
     if (!formData.name) return;
 
     // Доведение помещений в уже существующее здание: самого здания не касаемся вовсе.
@@ -767,7 +795,7 @@ export default function PropertiesList({
 
       setSaving(true);
       setSaveError('');
-      setSaveProgress('');
+      reportProgress('');
       try {
         const { createdUnitIds, failedUnitDocs } = await createUnitsAsync(
           formUnits, unitsTarget, unitsTarget.id, formData.status);
@@ -785,14 +813,10 @@ export default function PropertiesList({
         setUnitsTarget(null);
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
-        setSaveError(
-          err?.status === 413
-            ? 'Файл слишком большой для сервера — уменьшите фото или поднимите лимит на бэке (nginx client_max_body_size)'
-            : (err?.problem?.detail || err?.message || 'Не удалось добавить помещения на сервере')
-        );
+        setSaveError(describeSaveError(err, saveStepRef.current, 'Не удалось добавить помещения на сервере'));
       } finally {
         setSaving(false);
-        setSaveProgress('');
+        reportProgress('');
       }
       return;
     }
@@ -808,13 +832,13 @@ export default function PropertiesList({
 
       setSaving(true);
       setSaveError('');
-      setSaveProgress('Создаём здание…');
+      reportProgress('Создаём здание…');
       try {
         const buildingId = await api.buildings.create(mapBuildingToCreateRequest(formData));
 
         const files = (formData.imageFiles || []).slice(0, MAX_IMAGES);
         if (files.length) {
-          setSaveProgress(`Загружаем фото здания (${files.length})…`);
+          reportProgress(`Загружаем фото здания (${files.length})…`);
           await uploadImages(buildingId, files, api.buildings.uploadImage);
         }
 
@@ -825,7 +849,7 @@ export default function PropertiesList({
         // здании, поэтому общий пакет правоустанавливающих файлов уходит к первому помещению.
         const firstUnitId = createdUnitIds[0];
         const docsWithFiles = formDocs.filter((d) => d.file);
-        if (docsWithFiles.length) setSaveProgress(`Загружаем документы (${docsWithFiles.length})…`);
+        if (docsWithFiles.length) reportProgress(`Загружаем документы (${docsWithFiles.length})…`);
         for (const d of docsWithFiles) {
           try {
             await api.properties.uploadDocument(
@@ -854,20 +878,10 @@ export default function PropertiesList({
         // Refresh from the backend so the new units (with photos) appear.
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
-        setSaveError(
-          err?.status === 401
-            ? 'Нужен вход администратора (нет/просрочен токен)'
-            : err?.status === 403
-              ? 'Недостаточно прав (нужна роль Admin)'
-              : err?.status === 413
-                ? 'Фото слишком большое для сервера — уменьшите файл или поднимите лимит на бэке (nginx client_max_body_size)'
-                : err?.status === 409
-                  ? 'Конфликт параллельного изменения на сервере — попробуйте ещё раз (или починить concurrency в AddPropertyImageCommand на бэке)'
-                  : (err?.problem?.detail || err?.message || 'Не удалось создать объект')
-        );
+        setSaveError(describeSaveError(err, saveStepRef.current, 'Не удалось создать объект'));
       } finally {
         setSaving(false);
-        setSaveProgress('');
+        reportProgress('');
       }
       return;
     }
@@ -2478,16 +2492,17 @@ export default function PropertiesList({
                         <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Назначение по документам</label>
                         <input
                           type="text" placeholder="Под индивидуальное жилищное строительство"
+                          maxLength={256}
                           value={formData.documentedUse ?? ''}
                           onChange={(e) => setFormData({ ...formData, documentedUse: e.target.value })}
                           className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                         />
                       </div>
-                      {PROPERTY_CHARACTERISTICS.map(({ key, label, placeholder }) => (
+                      {PROPERTY_CHARACTERISTICS.map(({ key, label, placeholder, maxLength }) => (
                         <div key={key}>
                           <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">{label}</label>
                           <input
-                            type="text" placeholder={placeholder}
+                            type="text" placeholder={placeholder} maxLength={maxLength}
                             value={formData[key] ?? ''}
                             onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
                             className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
@@ -2499,6 +2514,7 @@ export default function PropertiesList({
                         <textarea
                           rows={3}
                           placeholder="Южная часть города, рядом центральные инфраструктуры, транспортная доступность…"
+                          maxLength={LOCATION_MAX_LENGTH}
                           value={formData.locationDescription ?? ''}
                           onChange={(e) => setFormData({ ...formData, locationDescription: e.target.value })}
                           className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white resize-y"
