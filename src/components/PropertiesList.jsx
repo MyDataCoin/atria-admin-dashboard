@@ -5,6 +5,7 @@ import {
   mapPropertyFromApi,
   mapBuildingFromApi,
   mapBuildingToCreateRequest,
+  mapBuildingToUpdateRequest,
   mapUnitToCreateRequest,
   mapUnitToUpdateRequest,
   UNIT_TYPE_LABELS,
@@ -470,6 +471,45 @@ export default function PropertiesList({
     setShowFormModal(true);
   };
 
+  /**
+   * «Изменить» у здания — та же форма, что и при регистрации, без помещений, фото и документов.
+   * Доступно, пока все помещения в черновике или «скоро»: дальше данные здания — часть того, на
+   * чём покупают. Значения, которые помещения унаследовали, бэкенд перенесёт и на них.
+   */
+  const handleOpenEditBuilding = (building, e) => {
+    e?.stopPropagation();
+    setFormMode('editBuilding');
+    setUnitsTarget(building);
+    setFormData({
+      id: building.id,
+      name: building.name || '',
+      description: building.description || '',
+      address: building.address || '',
+      city: building.city || '',
+      developer: building.developer || '',
+      floors: building.floors ?? '',
+      completionYear: building.completionYear ?? '',
+      type: building.type || 'Жилая недвижимость',
+      buildStatus: building.buildStatus || '',
+      constructionStage: building.constructionStage || '',
+      plannedCompletionDate: building.plannedCompletionDate || '',
+      plannedCompletionPrecision: building.plannedCompletionPrecision || 'day',
+      buildingTotalAreaSqM: building.buildingTotalAreaSqM ?? '',
+      hasElevator: building.hasElevator,
+      hasHeating: building.hasHeating,
+      hasSecurity: building.hasSecurity,
+      hasParking: building.hasParking,
+      isFreeOfEncumbrances: building.isFreeOfEncumbrances ?? null,
+      encumbranceCheckedAtUtc: building.encumbranceCheckedAtUtc || null,
+      status: 'draft',
+    });
+    setFormUnits([]);
+    setFormDocs([]);
+    setSaveError('');
+    reportProgress('');
+    setShowFormModal(true);
+  };
+
   // Полезная площадь больше общей — домен это отклонит. Считаем здесь, чтобы сказать об этом
   // рядом с полем, а не сообщением об ошибке после отправки.
   const editUsableOverTotal =
@@ -817,6 +857,25 @@ export default function PropertiesList({
         if (onRefreshProperties) await onRefreshProperties();
       } catch (err) {
         setSaveError(describeSaveError(err, saveStepRef.current, 'Не удалось добавить помещения на сервере'));
+      } finally {
+        setSaving(false);
+        reportProgress('');
+      }
+      return;
+    }
+
+    if (formMode === 'editBuilding') {
+      setSaving(true);
+      setSaveError('');
+      reportProgress('Сохраняем здание…');
+      try {
+        await api.buildings.update(formData.id, mapBuildingToUpdateRequest(formData));
+        onAddLog('Property Asset Updated', `Изменено здание "${formData.name}".`);
+        setShowFormModal(false);
+        setUnitsTarget(null);
+        if (onRefreshProperties) await onRefreshProperties();
+      } catch (err) {
+        setSaveError(describeSaveError(err, saveStepRef.current, 'Не удалось сохранить здание'));
       } finally {
         setSaving(false);
         reportProgress('');
@@ -1442,6 +1501,18 @@ export default function PropertiesList({
                   <span className="hidden sm:inline text-[9px] uppercase font-bold tracking-wider text-[#A38D6D] opacity-0 group-hover/bld:opacity-100 transition-opacity">
                     Карточка здания
                   </span>
+                  {/* Правка здания — пока все его помещения в черновике или «скоро». */}
+                  {building.isEditable && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenEditBuilding(building, e)}
+                      className="flex items-center gap-1.5 border border-gray-200 text-gray-600 hover:text-[#A38D6D] hover:border-[#A38D6D] px-3 py-1.5 rounded text-[9px] uppercase font-bold tracking-wider cursor-pointer"
+                      title="Изменить данные здания. Доступно, пока помещения не открыты к продаже"
+                    >
+                      <Edit3 size={11} />
+                      <span>Изменить</span>
+                    </button>
+                  )}
                   {/* Довести помещение в уже готовое здание — гараж, ещё одну квартиру. */}
                   <button
                     type="button"
@@ -2039,7 +2110,9 @@ export default function PropertiesList({
                     ? 'Зарегистрировать здание и помещения в нём'
                     : formMode === 'addUnits'
                       ? `Добавить помещения — ${unitsTarget?.name || ''}`
-                      : 'Редактировать параметры актива'}
+                      : formMode === 'editBuilding'
+                        ? `Редактировать здание — ${unitsTarget?.name || ''}`
+                        : 'Редактировать параметры актива'}
                 </h3>
               </div>
 
@@ -2052,7 +2125,7 @@ export default function PropertiesList({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
-                      {formMode === 'create' ? 'Название здания' : 'Название'}
+                      {formMode === 'create' || formMode === 'editBuilding' ? 'Название здания' : 'Название'}
                     </label>
                     <input 
                       type="text" required placeholder={formMode === 'create' ? 'Например: ЖК Ала-Тоо, блок B' : 'Например: Вилла Малибу'}
@@ -2084,7 +2157,7 @@ export default function PropertiesList({
                   </div>
 
                   {/* У строящегося здания года постройки ещё нет — вместо него срок ввода ниже. */}
-                  {!(formMode === 'create' && formData.buildStatus === 'under_construction') && (
+                  {!((formMode === 'create' || formMode === 'editBuilding') && formData.buildStatus === 'under_construction') && (
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
                     <input
@@ -2159,7 +2232,7 @@ export default function PropertiesList({
 
                   {/* Состояние здания — только при регистрации здания. Помещения наследуют всё это,
                       если у самого помещения своё значение не указано. */}
-                  {formMode === 'create' && (
+                  {(formMode === 'create' || formMode === 'editBuilding') && (
                     <div className="space-y-4 border border-gray-100 rounded p-3 bg-[#FAF8F3]/40">
                       <div>
                         <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Здание</label>
@@ -2265,7 +2338,15 @@ export default function PropertiesList({
                               <button
                                 key={String(value)}
                                 type="button"
-                                onClick={() => setFormData({ ...formData, isFreeOfEncumbrances: value })}
+                                // Новый результат — новая дата проверки: старая дата под новым вердиктом
+                                // утверждала бы, что его установили тогда.
+                                onClick={() => setFormData({
+                                  ...formData,
+                                  isFreeOfEncumbrances: value,
+                                  encumbranceCheckedAtUtc: value === formData.isFreeOfEncumbrances
+                                    ? formData.encumbranceCheckedAtUtc
+                                    : null,
+                                })}
                                 className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
                                   active ? tone : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
                                 }`}
@@ -2290,7 +2371,8 @@ export default function PropertiesList({
                 </div>
                 )}
 
-                {/* Status (экономика задаётся в параметрах выпуска) */}
+                {/* Status (экономика задаётся в параметрах выпуска). У здания своего статуса нет. */}
+                {formMode !== 'editBuilding' && (
                 <div className="border-t border-gray-100 pt-4">
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
@@ -2309,6 +2391,7 @@ export default function PropertiesList({
                     </select>
                   </div>
                 </div>
+                )}
 
                 {/* Помещения внутри здания. Каждое — отдельный выпуск токенов на бэке. */}
                 {(formMode === 'create' || formMode === 'addUnits') && (
@@ -2741,7 +2824,7 @@ export default function PropertiesList({
                 )}
 
                 {/* Images Upload Area */}
-                {formMode !== 'addUnits' && (
+                {formMode !== 'addUnits' && formMode !== 'editBuilding' && (
                 <div className="border-t border-gray-100 pt-4">
                   <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                     {formMode === 'create' ? 'Фото здания' : 'Фото помещения'} (максимум {MAX_IMAGES})
@@ -2829,7 +2912,7 @@ export default function PropertiesList({
                 {/* Documents attach area (available right at registration) — compact */}
                 {/* Общий пакет документов — только при регистрации здания. В режиме
                     «добавить помещения» документы прикладываются к каждому помещению отдельно. */}
-                {formMode !== 'addUnits' && (
+                {formMode !== 'addUnits' && formMode !== 'editBuilding' && (
                 <div className="border-t border-gray-100 pt-4">
                   <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                     Документы объекта
@@ -2929,7 +3012,9 @@ export default function PropertiesList({
                         ? `Создать объект${formUnits.length ? ` и ${formUnits.length} помещ.` : ''}`
                         : formMode === 'addUnits'
                           ? `Добавить ${formUnits.length} помещ.`
-                          : 'Сохранить изменения'}
+                          : formMode === 'editBuilding'
+                            ? 'Сохранить здание'
+                            : 'Сохранить изменения'}
                   </button>
                 </div>
               </form>

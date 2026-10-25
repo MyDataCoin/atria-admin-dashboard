@@ -710,6 +710,14 @@ export function mapBuildingToCreateRequest(form) {
   };
 }
 
+/**
+ * Правка здания -> PATCH /buildings/{id}. Те же поля, что и при регистрации: разойдись два
+ * списка — поле, заведённое при создании, молча терялось бы при правке.
+ */
+export function mapBuildingToUpdateRequest(form) {
+  return mapBuildingToCreateRequest(form);
+}
+
 /** Построено / строится — как это выбирает админ при регистрации здания. */
 export const BUILD_STATUSES = [
   { value: 'built', label: 'Построено' },
@@ -1114,6 +1122,8 @@ export function mapBuildingFromApi(b) {
     hasParking: b.hasParking === true,
     isFreeOfEncumbrances: b.isFreeOfEncumbrances ?? null,
     encumbranceCheckedAtUtc: b.encumbranceCheckedAtUtc || null,
+    // Можно ли ещё править здание: все помещения в черновике или «скоро». Решает бэкенд.
+    isEditable: b.isEditable === true,
     images,
     image: images[0] || PLACEHOLDER_IMAGE,
     unitCount: b.unitCount ?? (Array.isArray(b.units) ? b.units.length : 0),
