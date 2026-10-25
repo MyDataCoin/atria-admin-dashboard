@@ -683,16 +683,76 @@ function mapRoomsToApi(rooms) {
 
 /** Building form -> POST /buildings body. The building carries no economics. */
 export function mapBuildingToCreateRequest(form) {
+  const underConstruction = form.buildStatus === 'under_construction';
   return {
     name: form.name,
     description: form.description || null,
     address: form.address || null,
     city: form.city || null,
     developer: form.developer || null,
-    yearBuilt: numOrNull(form.completionYear),
+    // У строящегося здания года постройки нет: поле скрыто, и значение по умолчанию не должно уйти.
+    yearBuilt: underConstruction ? null : numOrNull(form.completionYear),
     floors: numOrNull(form.floors),
     buildingType: form.type || null,
+    totalAreaSqM: numOrNull(form.buildingTotalAreaSqM),
+    constructionStage: buildingStageToApi(form),
+    plannedCompletionDate: underConstruction ? form.plannedCompletionDate || null : null,
+    plannedCompletionPrecision: underConstruction ? form.plannedCompletionPrecision || null : null,
+    hasElevator: !!form.hasElevator,
+    hasHeating: !!form.hasHeating,
+    hasSecurity: !!form.hasSecurity,
+    hasParking: !!form.hasParking,
+    ...encumbranceFields(form),
   };
+}
+
+/** Построено / строится — как это выбирает админ при регистрации здания. */
+export const BUILD_STATUSES = [
+  { value: 'built', label: 'Построено' },
+  { value: 'under_construction', label: 'Строится' },
+];
+
+/** Галочки здания. Отмечено — есть (или предусмотрено проектом); не отмечено — не указано. */
+export const BUILDING_AMENITIES = [
+  { key: 'hasElevator', label: 'Лифт', field: 'elevator' },
+  { key: 'hasHeating', label: 'Отопление', field: 'heating' },
+  { key: 'hasSecurity', label: 'Охрана', field: 'security' },
+  { key: 'hasParking', label: 'Парковка', field: 'parking' },
+];
+
+/**
+ * Стадия здания для бэкенда. «Строится» без выбранной стадии уходит как under_construction:
+ * здание отмечено строящимся, и это уже ответ, а не пропуск.
+ */
+function buildingStageToApi(building) {
+  if (building?.buildStatus === 'built') return 'commissioned';
+  if (building?.buildStatus === 'under_construction') return building.constructionStage || 'under_construction';
+  return null;
+}
+
+/**
+ * Что помещение наследует у здания: стадию и срок ввода, галочки (лифт, отопление, охрана,
+ * парковка) и проверку Кадастра. Только там, где у самого помещения ничего не указано — своё
+ * значение помещения всегда главнее. Витрины читают эти поля с помещения, поэтому без
+ * наследования заведённое на здании до инвестора бы не дошло.
+ */
+function inheritFromBuilding(fields, unit, building) {
+  if (!building) return fields;
+  const out = { ...fields };
+
+  if (!out.constructionStage) out.constructionStage = buildingStageToApi(building);
+  if (!out.plannedCompletionDate && building.buildStatus === 'under_construction' && building.plannedCompletionDate) {
+    out.plannedCompletionDate = building.plannedCompletionDate;
+    out.plannedCompletionPrecision = building.plannedCompletionPrecision || null;
+  }
+
+  const amenityText = building.buildStatus === 'under_construction' ? 'Предусмотрено проектом' : 'Есть';
+  for (const { key, field } of BUILDING_AMENITIES) {
+    if (!out[field] && building[key]) out[field] = amenityText;
+  }
+
+  if (out.isFreeOfEncumbrances == null) Object.assign(out, encumbranceFields(building));
+  return out;
 }
 
 /**
@@ -715,7 +775,8 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     // Тип помещения, а не тип здания: гараж в жилом доме — не «жилая недвижимость».
     propertyType: propertyTypeOfUnit(unit.unitType, building?.type),
     city: building?.city || null,
-    yearBuilt: numOrNull(building?.completionYear),
+    // Строящееся здание года постройки не имеет — не наследуем скрытое значение формы.
+    yearBuilt: building?.buildStatus === 'under_construction' ? null : numOrNull(building?.completionYear),
     developer: building?.developer || null,
     floors: numOrNull(building?.floors),
     buildingId,
@@ -728,9 +789,10 @@ export function mapUnitToCreateRequest(unit, building, buildingId) {
     rooms: mapRoomsToApi(unit.rooms),
     payoutFrequency: unit.payoutFrequency || null,
     // Характеристики помещения берём с помещения, а не со здания: полезная площадь и назначение
-    // по документам у гаража свои, даже когда класс и отопление наследуются от дома.
-    ...characteristicFields(unit),
-    ...landAndCadastreFields(unit),
+    // по документам у гаража свои. Пустое у помещения добирается со здания.
+    ...inheritFromBuilding(
+      { ...characteristicFields(unit), ...landAndCadastreFields(unit), ...encumbranceFields(unit) },
+      unit, building),
   };
 }
 
@@ -970,6 +1032,8 @@ export function formatPlannedCompletion(value, precision) {
  */
 export function propertyTypeOfUnit(unitType, buildingType) {
   if (unitType === 'apartment') return 'Жилая недвижимость';
+  // Офис в бизнес-центре в каталоге — «Бизнес-центр»: так его и ищут.
+  if (unitType === 'commercial' && buildingType === 'Бизнес-центр') return 'Бизнес-центр';
   if (unitType === 'commercial' || isParkingUnitType(unitType)) return 'Коммерческая недвижимость';
   if (unitType === 'land_plot') return 'Земельный участок';
   // Кладовая и прочее: своего однозначного вида нет — оставляем тип здания, как было.
@@ -1012,6 +1076,22 @@ export function mapBuildingFromApi(b) {
     completionYear: b.yearBuilt ?? null,
     floors: b.floors ?? null,
     type: b.buildingType || '',
+    // Состояние здания — в той же форме, что и в форме регистрации: из него помещения,
+    // доводимые в здание позже, наследуют стадию, срок, галочки и проверку Кадастра.
+    buildStatus: b.constructionStage === 'commissioned'
+      ? 'built'
+      : ['land_only', 'design', 'under_construction'].includes(b.constructionStage) ? 'under_construction' : '',
+    constructionStage: b.constructionStage && b.constructionStage !== 'commissioned' && b.constructionStage !== 'unspecified'
+      ? b.constructionStage : '',
+    plannedCompletionDate: (b.plannedCompletionDate || '').slice(0, 10),
+    plannedCompletionPrecision: b.plannedCompletionPrecision || 'day',
+    buildingTotalAreaSqM: b.totalAreaSqM ?? null,
+    hasElevator: b.hasElevator === true,
+    hasHeating: b.hasHeating === true,
+    hasSecurity: b.hasSecurity === true,
+    hasParking: b.hasParking === true,
+    isFreeOfEncumbrances: b.isFreeOfEncumbrances ?? null,
+    encumbranceCheckedAtUtc: b.encumbranceCheckedAtUtc || null,
     images,
     image: images[0] || PLACEHOLDER_IMAGE,
     unitCount: b.unitCount ?? (Array.isArray(b.units) ? b.units.length : 0),

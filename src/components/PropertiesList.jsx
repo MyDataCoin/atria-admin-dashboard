@@ -27,6 +27,8 @@ import {
   DOCUMENT_CATEGORY_LABELS,
   CONSTRUCTION_STAGE_LABELS,
   COMPLETION_PRECISIONS,
+  BUILD_STATUSES,
+  BUILDING_AMENITIES,
 } from '../api/mappers';
 import PlacementPanel from './PlacementPanel';
 import { safeUrl } from '../utils';
@@ -387,8 +389,20 @@ export default function PropertiesList({
       floors: 1,
       completionYear: 2022,
       description: '',
-      // Тип объекта: коммерческая или жилая недвижимость
+      // Тип объекта: жилая, коммерческая недвижимость или бизнес-центр
       type: 'Жилая недвижимость',
+      // Состояние здания. '' — не указано; 'built' | 'under_construction'.
+      buildStatus: '',
+      constructionStage: '',
+      plannedCompletionDate: '',
+      plannedCompletionPrecision: 'day',
+      buildingTotalAreaSqM: '',
+      hasElevator: false,
+      hasHeating: false,
+      hasSecurity: false,
+      hasParking: false,
+      isFreeOfEncumbrances: null,
+      encumbranceCheckedAtUtc: null,
       images: [],
       imageFiles: [], // real File objects to upload after the property is created
       image: '',
@@ -2039,6 +2053,7 @@ export default function PropertiesList({
                     >
                       <option value="Жилая недвижимость">Жилая недвижимость</option>
                       <option value="Коммерческая недвижимость">Коммерческая недвижимость</option>
+                      <option value="Бизнес-центр">Бизнес-центр</option>
                     </select>
                   </div>
 
@@ -2051,6 +2066,8 @@ export default function PropertiesList({
                     />
                   </div>
 
+                  {/* У строящегося здания года постройки ещё нет — вместо него срок ввода ниже. */}
+                  {!(formMode === 'create' && formData.buildStatus === 'under_construction') && (
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
                     <input
@@ -2059,6 +2076,7 @@ export default function PropertiesList({
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
                     />
                   </div>
+                  )}
                 </div>
                 )}
 
@@ -2121,6 +2139,128 @@ export default function PropertiesList({
                       />
                     </div>
                   </div>
+
+                  {/* Состояние здания — только при регистрации здания. Помещения наследуют всё это,
+                      если у самого помещения своё значение не указано. */}
+                  {formMode === 'create' && (
+                    <div className="space-y-4 border border-gray-100 rounded p-3 bg-[#FAF8F3]/40">
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Здание</label>
+                        <div className="flex flex-wrap gap-2">
+                          {BUILD_STATUSES.map(({ value, label }) => {
+                            const active = formData.buildStatus === value;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                // Повторный клик снимает выбор: «не указано» тоже ответ.
+                                onClick={() => setFormData({ ...formData, buildStatus: active ? '' : value })}
+                                className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
+                                  active ? 'border-[#A38D6D] bg-[#A38D6D]/10 text-[#A38D6D]' : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {formData.buildStatus === 'under_construction' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Стадия стройки</label>
+                            <select
+                              value={formData.constructionStage || ''}
+                              onChange={(e) => setFormData({ ...formData, constructionStage: e.target.value })}
+                              className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                            >
+                              {/* Не выбрано — уходит как «Строительство»: здание отмечено строящимся. */}
+                              <option value="">Не указана</option>
+                              {Object.entries(CONSTRUCTION_STAGE_LABELS)
+                                .filter(([value]) => value !== 'commissioned')
+                                .map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Окончание стройки</label>
+                            <input
+                              type="date"
+                              value={formData.plannedCompletionDate || ''}
+                              onChange={(e) => setFormData({ ...formData, plannedCompletionDate: e.target.value })}
+                              className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Точность срока</label>
+                            <select
+                              value={formData.plannedCompletionPrecision || 'day'}
+                              onChange={(e) => setFormData({ ...formData, plannedCompletionPrecision: e.target.value })}
+                              className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                            >
+                              {COMPLETION_PRECISIONS.map(({ value, label }) => (
+                                <option key={value} value={value}>{label}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Общая площадь здания, м²</label>
+                          <input
+                            type="number" min="0" step="0.01" placeholder="Например: 19545.70"
+                            value={formData.buildingTotalAreaSqM ?? ''}
+                            onChange={(e) => setFormData({ ...formData, buildingTotalAreaSqM: e.target.value })}
+                            className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                            {formData.buildStatus === 'under_construction' ? 'Предусмотрено проектом' : 'В здании есть'}
+                          </label>
+                          <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2">
+                            {BUILDING_AMENITIES.map(({ key, label }) => (
+                              <label key={key} className="inline-flex items-center gap-1.5 text-gray-700 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={!!formData[key]}
+                                  onChange={(e) => setFormData({ ...formData, [key]: e.target.checked })}
+                                  className="accent-[#A38D6D]"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Тот же трёхпозиционный выбор, что и у помещения: «не проверяли» — не «свободен». */}
+                      <div>
+                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Обременения и аресты (по данным Кадастра)</label>
+                        <div className="flex flex-wrap gap-2">
+                          {ENCUMBRANCE_STATES.map(({ value, label, tone }) => {
+                            const active = formData.isFreeOfEncumbrances === value;
+                            return (
+                              <button
+                                key={String(value)}
+                                type="button"
+                                onClick={() => setFormData({ ...formData, isFreeOfEncumbrances: value })}
+                                className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
+                                  active ? tone : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Описание объекта</label>
