@@ -317,6 +317,8 @@ export default function PropertiesList({
   const [formMode, setFormMode] = useState('create'); // create, edit, addUnits, editBuilding
   // Форма про здание (регистрация или правка), а не про отдельное помещение.
   const isBuildingForm = formMode === 'create' || formMode === 'editBuilding';
+  // Помещение, к которому при правке здания прикрепляются документы.
+  const [formDocTargetId, setFormDocTargetId] = useState('');
   // Здание, в которое доводятся помещения в режиме addUnits. Держим объект целиком, а не только id:
   // mapUnitToCreateRequest берёт из него город, застройщика и год — помещение наследует их у здания.
   const [unitsTarget, setUnitsTarget] = useState(null);
@@ -481,6 +483,9 @@ export default function PropertiesList({
   const handleOpenEditBuilding = (building, e) => {
     e?.stopPropagation();
     setFormMode('editBuilding');
+    setFormDocTargetId(properties.find((p) => p.buildingId === building.id)?.id || '');
+    setFormDocCategory('legal');
+    setFormDocTitle('');
     setUnitsTarget(building);
     setFormData({
       id: building.id,
@@ -867,6 +872,11 @@ export default function PropertiesList({
     }
 
     if (formMode === 'editBuilding') {
+      // Проверяем ДО сохранения: иначе здание сохранится, а документы молча останутся без места.
+      if (formDocs.some((d) => d.file) && !formDocTargetId && formUnits.length === 0) {
+        setSaveError('Документы некуда прикрепить: в здании нет помещений. Добавьте помещение ниже.');
+        return;
+      }
       setSaving(true);
       setSaveError('');
       reportProgress('Сохраняем здание…');
@@ -877,10 +887,24 @@ export default function PropertiesList({
         const { createdUnitIds, failedUnitDocs } = formUnits.length
           ? await createUnitsAsync(formUnits, formData, formData.id, formData.status)
           : { createdUnitIds: [], failedUnitDocs: [] };
+
+        // Документы — к выбранному помещению, а если в здании помещений не было, к первому новому.
+        const docTarget = formDocTargetId || createdUnitIds[0];
+        const docsWithFiles = formDocs.filter((d) => d.file);
+        for (const d of docsWithFiles) {
+          reportProgress(`Загружаем документ «${d.title || d.file.name}»…`);
+          try {
+            await api.properties.uploadDocument(
+              docTarget, d.file, d.file.name || d.title, { category: d.category, title: d.title });
+          } catch {
+            failedUnitDocs.push(d.title || d.file.name);
+          }
+        }
         onAddLog(
           'Property Asset Updated',
           `Изменено здание "${formData.name}"` +
             (createdUnitIds.length ? `, добавлено помещений: ${createdUnitIds.length}` : '') +
+            (docsWithFiles.length ? `, документов: ${docsWithFiles.length}` : '') +
             (failedUnitDocs.length ? `. Не загрузились: ${failedUnitDocs.join(', ')}` : '') + '.'
         );
         setShowFormModal(false);
@@ -2511,7 +2535,8 @@ export default function PropertiesList({
                       ))}
                     </div>
 
-                    {formUnits.length === 0 && (
+                    {/* При правке здания помещения уже есть (список выше) — новые необязательны. */}
+                    {formUnits.length === 0 && formMode !== 'editBuilding' && (
                       <p className="text-[10px] text-amber-600 font-mono py-3">
                         Ни одного помещения — добавьте хотя бы одно, иначе выпускать нечего.
                       </p>
@@ -2979,11 +3004,33 @@ export default function PropertiesList({
                 {/* Documents attach area (available right at registration) — compact */}
                 {/* Общий пакет документов — только при регистрации здания. В режиме
                     «добавить помещения» документы прикладываются к каждому помещению отдельно. */}
-                {formMode !== 'addUnits' && formMode !== 'editBuilding' && (
+                {formMode !== 'addUnits' && (
                 <div className="border-t border-gray-100 pt-4">
                   <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
                     Документы объекта
                   </span>
+                  {/* При правке здания документы ложатся на выбранное помещение: бэкенд хранит их
+                      на выпуске, не на здании. Нет помещений — уйдут к первому новому. */}
+                  {formMode === 'editBuilding' && (
+                    <div className="mb-2">
+                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                        Прикрепить к помещению
+                      </label>
+                      {editBuildingUnits.length > 0 ? (
+                        <select
+                          value={formDocTargetId}
+                          onChange={(e) => setFormDocTargetId(e.target.value)}
+                          className="w-full p-2 border border-gray-200 rounded text-xs bg-white text-gray-900 focus:outline-none focus:border-[#A38D6D]"
+                        >
+                          {editBuildingUnits.map((u) => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-[9px] text-gray-400 font-mono">К первому новому помещению из списка выше.</p>
+                      )}
+                    </div>
+                  )}
                   {formMode === 'create' && (
                     <p className="text-[9px] text-gray-400 font-mono mb-2">
                       Хранятся на выпуске, а не на здании, поэтому прикрепляются к первому помещению
