@@ -518,6 +518,9 @@ export default function PropertiesList({
       plannedCompletionDate: (prop.plannedCompletionDate || '').slice(0, 10),
       plannedCompletionPrecision: prop.plannedCompletionPrecision || 'day',
       readinessPercent: prop.readinessPercent ?? '',
+      // Условия выпуска. Минимум правим в штуках — так его и хранит бэкенд.
+      totalValue: prop.totalValue ?? '',
+      minPurchaseMode: 'tokens',
       rooms: (prop.rooms || []).map((r) => ({ name: r.name, areaSqM: r.areaSqM })),
     });
     setFormUnits([]);
@@ -2364,6 +2367,44 @@ export default function PropertiesList({
                       </p>
                     )}
 
+                  </div>
+                )}
+
+                {/* Условия выпуска. Меняются, пока помещение в черновике или «скоро» и ничего не
+                    продано; после открытия продаж — только просмотр: это условия, на которых
+                    уже покупают. Разрешение приходит с бэкенда (issueTermsEditable). */}
+                {formMode === 'edit' && (
+                  <div className="border-t border-gray-100 pt-4 space-y-3">
+                    <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
+                      Условия выпуска
+                    </span>
+                    {!formData.issueTermsEditable && (
+                      <p className="text-[10px] text-gray-500">
+                        Продажи уже открыты (или есть заявки / задеплоен контракт) — условия выпуска не меняются.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      {[
+                        { key: 'tokenPrice', label: `Цена токена (${formData.currency || 'KGS'})`, step: '0.01' },
+                        { key: 'totalTokens', label: 'Всего токенов', step: '1' },
+                        { key: 'totalValue', label: `Стоимость (${formData.currency || 'KGS'})`, step: '0.01' },
+                        { key: 'minPurchaseTokens', label: 'Мин. покупка, токенов', step: '1' },
+                      ].map(({ key, label, step }) => (
+                        <div key={key}>
+                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">{label}</label>
+                          <input
+                            type="number" min={key === 'minPurchaseTokens' || key === 'totalTokens' ? 1 : 0} step={step}
+                            disabled={!formData.issueTermsEditable}
+                            placeholder={key === 'totalValue'
+                              ? String((Number(formData.tokenPrice) || 0) * (Number(formData.totalTokens) || 0) || '')
+                              : ''}
+                            value={formData[key] ?? ''}
+                            onChange={(e) => setFormData({ ...formData, [key]: e.target.value })}
+                            className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono disabled:bg-gray-50 disabled:text-gray-400"
+                          />
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 

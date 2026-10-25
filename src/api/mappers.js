@@ -71,6 +71,10 @@ export function mapPropertyFromApi(p) {
     // Порог входа выпуска и его цена — приходят с бэкенда, показываются в карточке.
     minPurchaseTokens: p.minPurchaseTokens ?? 1,
     minPurchaseAmount: p.minPurchaseAmount ?? 0,
+    // Стоимость выпуска и можно ли ещё менять условия. Решает бэкенд: черновик или «скоро»,
+    // ничего не зарезервировано, контракт не задеплоен.
+    totalValue: p.totalValue ?? null,
+    issueTermsEditable: p.issueTermsEditable === true,
     // Площадь на токен: расчётный эквивалент для показа рядом с количеством, не единица учёта.
     areaPerTokenSqM: p.areaPerTokenSqM ?? null,
 
@@ -946,6 +950,24 @@ export function mapUnitToUpdateRequest(unit) {
     ...encumbranceFields(unit),
     ...characteristicFields(unit),
     ...landAndCadastreFields(unit),
+    ...issueTermsFields(unit),
+  };
+}
+
+/**
+ * Условия выпуска — только пока бэкенд разрешает их менять (черновик или «скоро», ничего не
+ * продано). После открытия продаж не шлём вовсе: это условия, на которых уже покупают, и
+ * сервер ответил бы 400 на всё сохранение, а не только на эти поля.
+ */
+function issueTermsFields(unit) {
+  if (!unit.issueTermsEditable) return {};
+  const tokenPrice = numOrNull(unit.tokenPrice);
+  const totalTokens = unit.totalTokens === '' || unit.totalTokens == null ? null : wholeTokens(unit.totalTokens);
+  return {
+    tokenPrice,
+    totalTokens,
+    totalValue: numOrNull(unit.totalValue) ?? (tokenPrice && totalTokens ? tokenPrice * totalTokens : null),
+    minPurchaseTokens: minPurchaseTokensFrom(unit),
   };
 }
 
