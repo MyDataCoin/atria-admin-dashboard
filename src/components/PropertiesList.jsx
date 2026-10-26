@@ -1230,11 +1230,10 @@ export default function PropertiesList({
     return { groups, standalone };
   }, [properties, buildings, buildingNames, statusFilter]);
 
-  // Помещения здания, открытого на правку, — все, без фильтра по статусу.
-  const editBuildingUnits = useMemo(
-    () => (formMode === 'editBuilding' ? properties.filter((p) => p.buildingId === formData.id) : []),
-    [formMode, formData.id, properties],
-  );
+  // Помещения здания, открытого на правку, — все, без фильтра по статусу. Без useMemo: фильтр
+  // дешёвый, а ручная мемоизация по formData.id ломала оптимизацию React Compiler (ошибка линта).
+  const editBuildingUnits =
+    formMode === 'editBuilding' ? properties.filter((p) => p.buildingId === formData.id) : [];
 
   // Everything registered inside the open building — deliberately ignoring the status filter, so the
   // building card is the full passport of the object (that is what a brochure is generated from).
