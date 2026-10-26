@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../api';
+import { suggestAddresses } from '../api/address';
 import {
   mapHolderFromInvestment,
   mapPropertyFromApi,
@@ -207,7 +208,12 @@ export default function PropertiesList({
   const [addrSuggestions, setAddrSuggestions] = useState([]);
   const [addrOpen, setAddrOpen] = useState(false);
   const [addrLoading, setAddrLoading] = useState(false);
+  // Подсветка в списке подсказок — для стрелок и Enter, как в Яндексе.
+  const [addrActive, setAddrActive] = useState(-1);
   const addrDebounce = useRef(null);
+  // Запрос, который ещё летит, отменяется следующим: иначе ответ на «Аалы Токо» мог прийти
+  // позже ответа на «Аалы Токомбаева 21» и затереть его.
+  const addrAbort = useRef(null);
 
   /**
    * Границы города из поля «Город» — чтобы подсказки адреса шли только из него: «Бишкек» даёт
@@ -243,43 +249,54 @@ export default function PropertiesList({
   const fetchAddrSuggestions = (q) => {
     if (addrDebounce.current) clearTimeout(addrDebounce.current);
     if (!q || q.trim().length < 3) {
+      addrAbort.current?.abort();
       setAddrSuggestions([]);
       setAddrOpen(false);
       return;
     }
     addrDebounce.current = setTimeout(async () => {
+      addrAbort.current?.abort();
+      const controller = new AbortController();
+      addrAbort.current = controller;
       try {
         setAddrLoading(true);
         const box = await cityViewbox(formData.city);
-        const url =
-          `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6` +
-          `&countrycodes=kg&accept-language=ru&q=${encodeURIComponent(q)}` +
-          // bounded=1 — только внутри города, а не «сначала в нём, потом где угодно».
-          (box ? `&viewbox=${box}&bounded=1` : '');
-        // referrerPolicy: адрес объекта уходит стороннему сервису и без этого — но Referer
-        // добавил бы к нему URL внутренней админ-панели, то есть выдал бы наружу её адрес
-        // вместе с IP оператора. Подсказки по адресу того не стоят.
-        const res = await fetch(url, {
-          headers: { Accept: 'application/json' },
-          referrerPolicy: 'no-referrer',
-        });
-        const data = await res.json();
-        setAddrSuggestions(Array.isArray(data) ? data : []);
+        const list = await suggestAddresses(q, box, controller.signal);
+        if (controller.signal.aborted) return;
+        setAddrSuggestions(list);
+        setAddrActive(list.length ? 0 : -1);
         setAddrOpen(true);
-      } catch {
-        setAddrSuggestions([]);
+      } catch (err) {
+        if (err?.name !== 'AbortError') setAddrSuggestions([]);
       } finally {
-        setAddrLoading(false);
+        if (addrAbort.current === controller) setAddrLoading(false);
       }
-    }, 400);
+    }, 250);
   };
 
   const pickAddress = (s) => {
-    const a = s.address || {};
-    const city = a.city || a.town || a.village || a.county || '';
-    setFormData((prev) => ({ ...prev, address: s.display_name, city: prev.city || city }));
+    setFormData((prev) => ({ ...prev, address: s.value, city: prev.city || s.city }));
     setAddrSuggestions([]);
     setAddrOpen(false);
+    setAddrActive(-1);
+  };
+
+  // Стрелки ходят по подсказкам, Enter выбирает, Esc закрывает. Enter без открытого списка
+  // уходит форме как обычно — подсказкой можно и не пользоваться.
+  const handleAddrKeyDown = (e) => {
+    if (!addrOpen || addrSuggestions.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setAddrActive((i) => (i + 1) % addrSuggestions.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setAddrActive((i) => (i <= 0 ? addrSuggestions.length - 1 : i - 1));
+    } else if (e.key === 'Enter' && addrActive >= 0) {
+      e.preventDefault();
+      pickAddress(addrSuggestions[addrActive]);
+    } else if (e.key === 'Escape') {
+      setAddrOpen(false);
+    }
   };
 
   // Pause/resume an active offering. Persisted on the backend (POST /pause | /resume) so the
@@ -2277,8 +2294,9 @@ export default function PropertiesList({
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес объекта</label>
                     <div className="relative">
                       <input
-                        type="text" placeholder="Начните вводить адрес: ул. Чуй 123, Бишкек"
+                        type="text" placeholder="Улица и дом: Аалы Токомбаева 21/5А"
                         autoComplete="off"
+                        onKeyDown={handleAddrKeyDown}
                         value={formData.address || ''}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -2294,15 +2312,23 @@ export default function PropertiesList({
                       )}
                       {addrOpen && addrSuggestions.length > 0 && (
                         <ul className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded shadow-lg max-h-60 overflow-y-auto">
-                          {addrSuggestions.map((s) => (
-                            <li key={s.place_id}>
+                          {addrSuggestions.map((s, i) => (
+                            <li key={s.id}>
                               <button
                                 type="button"
                                 onMouseDown={(e) => { e.preventDefault(); pickAddress(s); }}
-                                className="w-full text-left px-3 py-2 text-[11px] text-gray-700 hover:bg-[#FAF8F3] hover:text-[#A38D6D] border-b border-gray-50 last:border-0 flex items-start gap-2"
+                                onMouseEnter={() => setAddrActive(i)}
+                                className={`w-full text-left px-3 py-2 border-b border-gray-50 last:border-0 flex items-start gap-2 ${
+                                  i === addrActive ? 'bg-[#FAF8F3]' : 'bg-white'
+                                }`}
                               >
                                 <MapPin size={12} className="text-[#A38D6D] mt-0.5 shrink-0" />
-                                <span className="leading-snug">{s.display_name}</span>
+                                <span className="min-w-0">
+                                  <span className="block text-[12px] text-gray-900 leading-snug truncate">{s.title}</span>
+                                  {s.subtitle && (
+                                    <span className="block text-[10px] text-gray-400 leading-snug truncate">{s.subtitle}</span>
+                                  )}
+                                </span>
                               </button>
                             </li>
                           ))}
