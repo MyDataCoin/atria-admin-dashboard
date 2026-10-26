@@ -67,6 +67,15 @@ import { motion, AnimatePresence } from 'motion/react';
 const MAX_IMAGES = 10;
 
 // Dashboard property status -> human label (RU). Mirrors the public-site buckets.
+// Города и области Кыргызстана для подсказки в поле «Город». По нему же сужаются подсказки адреса.
+const KG_CITIES = [
+  'Бишкек', 'Ош', 'Джалал-Абад', 'Каракол', 'Токмок', 'Кара-Балта', 'Нарын', 'Талас', 'Баткен',
+  'Узген', 'Балыкчы', 'Чолпон-Ата', 'Кара-Суу', 'Кызыл-Кия', 'Майлуу-Суу', 'Таш-Кумыр', 'Кант',
+  'Кемин', 'Кочкор-Ата', 'Сулюкта', 'Исфана', 'Кадамжай', 'Ноокат', 'Токтогул', 'Кара-Куль',
+  'Чуйская область', 'Иссык-Кульская область', 'Ошская область', 'Джалал-Абадская область',
+  'Нарынская область', 'Таласская область', 'Баткенская область',
+];
+
 const STATUS_LABELS = {
   draft: 'Черновик',
   coming_soon: 'Скоро в продаже',
@@ -200,6 +209,37 @@ export default function PropertiesList({
   const [addrLoading, setAddrLoading] = useState(false);
   const addrDebounce = useRef(null);
 
+  /**
+   * Границы города из поля «Город» — чтобы подсказки адреса шли только из него: «Бишкек» даёт
+   * улицы Бишкека, «Ош» — Оша, «Иссык-Кульская область» — области. Ищем их у того же Nominatim
+   * один раз на город и кэшируем. Не нашли (опечатка, пустое поле) — ищем по всей стране, как раньше.
+   */
+  const cityBoxCache = useRef(new Map());
+  const cityViewbox = async (city) => {
+    const name = (city || '').replace(/^\s*(г\.|город)\s*/i, '').trim();
+    if (!name) return null;
+    const key = name.toLowerCase();
+    if (cityBoxCache.current.has(key)) return cityBoxCache.current.get(key);
+    let box = null;
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&countrycodes=kg&accept-language=ru` +
+          `&q=${encodeURIComponent(name)}`,
+        { headers: { Accept: 'application/json' }, referrerPolicy: 'no-referrer' },
+      );
+      const [hit] = await res.json();
+      // boundingbox: [юг, север, запад, восток]; viewbox ждёт запад,север,восток,юг.
+      if (hit?.boundingbox?.length === 4) {
+        const [south, north, west, east] = hit.boundingbox;
+        box = `${west},${north},${east},${south}`;
+      }
+    } catch {
+      /* без границ — поиск по всей стране */
+    }
+    cityBoxCache.current.set(key, box);
+    return box;
+  };
+
   const fetchAddrSuggestions = (q) => {
     if (addrDebounce.current) clearTimeout(addrDebounce.current);
     if (!q || q.trim().length < 3) {
@@ -210,9 +250,12 @@ export default function PropertiesList({
     addrDebounce.current = setTimeout(async () => {
       try {
         setAddrLoading(true);
+        const box = await cityViewbox(formData.city);
         const url =
           `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=6` +
-          `&countrycodes=kg&accept-language=ru&q=${encodeURIComponent(q)}`;
+          `&countrycodes=kg&accept-language=ru&q=${encodeURIComponent(q)}` +
+          // bounded=1 — только внутри города, а не «сначала в нём, потом где угодно».
+          (box ? `&viewbox=${box}&bounded=1` : '');
         // referrerPolicy: адрес объекта уходит стороннему сервису и без этого — но Referer
         // добавил бы к нему URL внутренней админ-панели, то есть выдал бы наружу её адрес
         // вместе с IP оператора. Подсказки по адресу того не стоят.
@@ -2196,10 +2239,20 @@ export default function PropertiesList({
                   <div>
                     <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Город</label>
                     <input
-                      type="text" placeholder="Например: Бишкек"
-                      value={formData.city} onChange={(e) => setFormData({...formData, city: e.target.value})}
+                      type="text" placeholder="Например: Бишкек" list="kg-cities"
+                      value={formData.city}
+                      onChange={(e) => {
+                        setFormData({...formData, city: e.target.value});
+                        // Подсказки прежнего города больше не к месту.
+                        setAddrSuggestions([]);
+                        setAddrOpen(false);
+                      }}
                       className="w-full p-2.5 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
                     />
+                    {/* Подсказка, а не ограничение: можно вписать и село — границы найдутся так же. */}
+                    <datalist id="kg-cities">
+                      {KG_CITIES.map((c) => <option key={c} value={c} />)}
+                    </datalist>
                   </div>
 
                   {/* У строящегося здания года постройки ещё нет — вместо него срок ввода ниже. */}
