@@ -202,10 +202,14 @@ export const buildings = {
   publish: (id) => request(`/buildings/${id}/publish`, { method: 'POST' }),
   // Admin only. 409 while the building still holds units — detach or remove them first.
   remove: (id) => request(`/buildings/${id}`, { method: 'DELETE' }),
-  // Admin only. Uploads one photo of the building (max 10). Returns { id, url }.
-  uploadImage: (id, file, filename) => {
+  // Admin only. Uploads one image of the building (max 10). Returns { id, url, kind, caption }.
+  // `kind` — как у помещения: 'photo' (по умолчанию) | 'render' | 'floor_plan' | 'site_plan'.
+  // Первое фото здания — обложка на сайте, поэтому рендер строящегося здания обязан быть 'render'.
+  uploadImage: (id, file, filename, { kind, caption } = {}) => {
     const form = new FormData();
     form.append('file', file, filename || file.name || 'photo.jpg');
+    if (kind) form.append('kind', kind);
+    if (caption) form.append('caption', caption);
     return request(`/buildings/${id}/images`, { method: 'POST', body: form });
   },
   deleteImage: (id, imageId) =>

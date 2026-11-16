@@ -67,6 +67,19 @@ import { motion, AnimatePresence } from 'motion/react';
 // Max photos allowed per property on the create form.
 const MAX_IMAGES = 10;
 
+// Подпись к рендеру по умолчанию: на сайте рендер строящегося объекта без пометки читается как
+// фотография готового здания.
+const RENDER_CAPTION = 'Визуализация из проектной документации, не фотография.';
+
+// Строящийся объект фотографировать нечего — по умолчанию считаем загружаемые картинки рендерами.
+// Админ может снять галочку, если это реальные фото стройки.
+const imagesAreRenders = (formData) =>
+  formData.imagesAreRenders ?? formData.buildStatus === 'under_construction';
+
+// { kind, caption } для пачки загружаемых картинок формы.
+const imageMeta = (formData) =>
+  imagesAreRenders(formData) ? { kind: 'render', caption: RENDER_CAPTION } : { kind: 'photo' };
+
 // Dashboard property status -> human label (RU). Mirrors the public-site buckets.
 // Города и области Кыргызстана для подсказки в поле «Город». По нему же сужаются подсказки адреса.
 const KG_CITIES = [
@@ -816,7 +829,8 @@ export default function PropertiesList({
   // Upload newly attached photos to a property. Shared by create and edit: images are
   // compressed to WebP, and the backend's optimistic concurrency on the property row can
   // return 409 ("please retry") when adding an image, so retry a few times with backoff.
-  const uploadImages = async (ownerId, files, uploader = api.properties.uploadImage) => {
+  // `meta` — { kind, caption } for every file of this batch (see imageMeta).
+  const uploadImages = async (ownerId, files, uploader = api.properties.uploadImage, meta = {}) => {
     for (const file of files || []) {
       const compressed = await compressImage(file); // → WebP, light compression
       const isWebp = compressed?.type === 'image/webp';
@@ -824,7 +838,7 @@ export default function PropertiesList({
       const name = base + (isWebp ? '.webp' : '');
       for (let attempt = 0; ; attempt++) {
         try {
-          await uploader(ownerId, compressed, name);
+          await uploader(ownerId, compressed, name, meta);
           break;
         } catch (err) {
           if (err?.status === 409 && attempt < 3) {
@@ -997,7 +1011,7 @@ export default function PropertiesList({
         const files = (formData.imageFiles || []).slice(0, MAX_IMAGES);
         if (files.length) {
           reportProgress(`Загружаем фото здания (${files.length})…`);
-          await uploadImages(buildingId, files, api.buildings.uploadImage);
+          await uploadImages(buildingId, files, api.buildings.uploadImage, imageMeta(formData));
         }
 
         const { createdUnitIds, failedUnitDocs } = await createUnitsAsync(
@@ -1069,7 +1083,7 @@ export default function PropertiesList({
         //    table has to clear the breakdown rather than silently keep the old rows.
         await api.properties.update(formData.id, mapUnitToUpdateRequest(formData));
         // 2) Upload newly attached photos to the backend.
-        await uploadImages(formData.id, newImageFiles);
+        await uploadImages(formData.id, newImageFiles, api.properties.uploadImage, imageMeta(formData));
         // 3) Upload newly attached documents to the backend.
         for (const d of newDocFiles) {
           await api.properties.uploadDocument(
@@ -3073,6 +3087,16 @@ export default function PropertiesList({
                     )}
                   </div>
                   
+                  <label className="flex items-center gap-2 mb-2 text-[10px] text-gray-600 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={imagesAreRenders(formData)}
+                      onChange={(e) => setFormData({ ...formData, imagesAreRenders: e.target.checked })}
+                      className="accent-[#A38D6D]"
+                    />
+                    Это визуализации (рендеры), а не фото — на сайте будут с пометкой «Визуализация»
+                  </label>
+
                   <p className="text-[8px] text-gray-400 font-mono">
                     Выберите JPG, PNG или WEBP (макс. {MAX_IMAGES}). При создании фото загружаются на сервер.
                   </p>
