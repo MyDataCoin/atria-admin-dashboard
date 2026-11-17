@@ -390,6 +390,30 @@ export default function PropertiesList({
   const [formMode, setFormMode] = useState('create'); // create, edit, addUnits, editBuilding
   // Форма про здание (регистрация или правка), а не про отдельное помещение.
   const isBuildingForm = formMode === 'create' || formMode === 'editBuilding';
+
+  // Вкладки формы: одна длинная простыня читалась с трудом. Набор зависит от режима —
+  // у помещения свои характеристики и кадастр, у здания — список помещений.
+  const formTabs =
+    formMode === 'edit'
+      ? [
+          { id: 'main', label: 'Основное' },
+          { id: 'specs', label: 'Характеристики' },
+          { id: 'cadastre', label: 'Кадастр и стройка' },
+          { id: 'media', label: 'Фото и документы' },
+        ]
+      : formMode === 'addUnits'
+        ? [{ id: 'units', label: 'Помещения' }]
+        : [
+            { id: 'main', label: 'Основное' },
+            { id: 'units', label: 'Помещения' },
+            { id: 'media', label: 'Фото и документы' },
+          ];
+  const [formTab, setFormTab] = useState('main');
+  // Каждое открытие формы — с первой вкладки своего режима.
+  useEffect(() => {
+    if (showFormModal) setFormTab(formTabs[0].id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFormModal, formMode]);
   // Помещение, к которому при правке здания прикрепляются документы.
   const [formDocTargetId, setFormDocTargetId] = useState('');
   // Здание, в которое доводятся помещения в режиме addUnits. Держим объект целиком, а не только id:
@@ -1858,7 +1882,7 @@ export default function PropertiesList({
                             <span className="text-sm font-bold font-mono text-gray-900">
                               {formatTokens(selectedProp.minPurchaseTokens ?? 1)}
                             </span>
-                            <span className="block text-[9px] text-gray-400 font-mono mt-0.5">
+                            <span className="block text-xs text-gray-500 mt-0.5">
                               {formatMoney(
                                 selectedProp.minPurchaseAmount
                                   ?? (selectedProp.minPurchaseTokens ?? 1) * (selectedProp.tokenPrice ?? 0),
@@ -1874,7 +1898,7 @@ export default function PropertiesList({
                               <span className="text-sm font-bold font-mono text-gray-900">
                                 ≈ {Number(selectedProp.areaPerTokenSqM).toLocaleString('ru-RU', { maximumFractionDigits: 4 })} м²
                               </span>
-                              <span className="block text-[9px] text-gray-400 font-mono mt-0.5">расчётно</span>
+                              <span className="block text-xs text-gray-500 mt-0.5">расчётно</span>
                             </div>
                           )}
                         </div>
@@ -2017,7 +2041,7 @@ export default function PropertiesList({
                                   ) : (
                                     <span className="font-bold text-gray-900 block truncate">{doc.title}</span>
                                   )}
-                                  <span className="text-[9px] text-gray-400 font-mono">
+                                  <span className="text-xs text-gray-500">
                                     {doc._api
                                       ? 'Сохранён на сервере'
                                       : `Категория: ${(doc.category || '').toUpperCase()} • Размер: ${doc.fileSize}`}
@@ -2138,7 +2162,7 @@ export default function PropertiesList({
                               <div className="text-left min-w-0">
                                 <span className="font-bold text-gray-900 block font-serif truncate">{h.name}</span>
                                 {h.walletAddress && (
-                                  <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{h.walletAddress}</span>
+                                  <span className="text-xs text-gray-500 truncate max-w-[220px] block">{h.walletAddress}</span>
                                 )}
                               </div>
                               <div className="text-right shrink-0">
@@ -2168,7 +2192,7 @@ export default function PropertiesList({
                             <div key={inv.id} className="flex justify-between items-center p-3 border border-gray-50 bg-[#FBFBFA] rounded text-xs">
                               <div className="text-left">
                                 <span className="font-bold text-gray-900 block font-serif">{inv.name}</span>
-                                <span className="text-[9px] text-gray-400 font-mono truncate max-w-[220px] block">{inv.walletAddress}</span>
+                                <span className="text-xs text-gray-500 truncate max-w-[220px] block">{inv.walletAddress}</span>
                               </div>
                               <div className="text-right">
                                 <span className="font-bold text-[#A38D6D] block">{holding.tokensOwned.toLocaleString()} ATR-S</span>
@@ -2210,7 +2234,7 @@ export default function PropertiesList({
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white border border-gray-200 shadow-2xl max-w-2xl w-full p-6 text-left relative rounded-sm my-8"
+              className="bg-white border border-gray-200 shadow-2xl max-w-3xl w-full p-6 text-left relative rounded-lg my-8"
             >
               <div className="border-b border-gray-150 pb-3 mb-4">
                 <span className="text-[8px] uppercase tracking-widest text-[#A38D6D] font-bold block">Кадастровый реестр</span>
@@ -2232,15 +2256,34 @@ export default function PropertiesList({
                 )}
               </div>
 
-              <form onSubmit={handleSaveForm} className="space-y-4 text-xs">
+              <form onSubmit={handleSaveForm} onInvalidCapture={(e) => { const t = e.target.closest?.('[data-tab]')?.dataset.tab; if (t) setFormTab(t); }} className="space-y-5 text-sm">
+                {formTabs.length > 1 && (
+                  <div className="sticky top-0 z-10 -mx-6 px-6 bg-white border-b border-gray-200 flex gap-1 overflow-x-auto">
+                    {formTabs.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setFormTab(t.id)}
+                        className={`px-3 py-2.5 text-sm whitespace-nowrap border-b-2 -mb-px cursor-pointer transition-colors ${
+                          formTab === t.id
+                            ? 'border-gray-900 text-gray-900 font-semibold'
+                            : 'border-transparent text-gray-500 hover:text-gray-800'
+                        }`}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 
+                <div data-tab="main" className={formTab === 'main' ? 'space-y-5' : 'hidden'}>
                 {/* General Data */}
                 {/* Паспорт здания. В режиме «добавить помещения» здание уже заведено — его поля
                     (и required среди них) прятать обязательно, иначе форма не даст отправить себя. */}
                 {formMode !== 'addUnits' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
                       {isBuildingForm ? 'Название здания' : 'Название помещения'}
                     </label>
                     <input 
@@ -2254,7 +2297,7 @@ export default function PropertiesList({
                       правке помещения они никуда не отправлялись — правка молча терялась. */}
                   {isBuildingForm && (<>
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Тип недвижимости</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Тип недвижимости</label>
                     <select
                       required
                       value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})}
@@ -2267,7 +2310,7 @@ export default function PropertiesList({
                   </div>
 
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Город</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Город</label>
                     <input
                       type="text" placeholder="Например: Бишкек" list="kg-cities"
                       value={formData.city}
@@ -2288,7 +2331,7 @@ export default function PropertiesList({
                   {/* У строящегося здания года постройки ещё нет — вместо него срок ввода ниже. */}
                   {formData.buildStatus !== 'under_construction' && (
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Год постройки</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Год постройки</label>
                     <input
                       type="number" min="1800" max="2100" placeholder="Например: 2020"
                       value={formData.completionYear ?? ''} onChange={(e) => setFormData({...formData, completionYear: e.target.value})}
@@ -2300,12 +2343,14 @@ export default function PropertiesList({
                 </div>
                 )}
 
+                </div>
+                <div data-tab="main" className={formTab === 'main' ? 'space-y-5' : 'hidden'}>
                 {/* Address, Developer, Floors, Description */}
                 {formMode !== 'addUnits' && (
                 <div className="space-y-4">
                   {isBuildingForm && (<>
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Адрес объекта</label>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">Адрес объекта</label>
                     <div className="relative">
                       <input
                         type="text" placeholder="Улица и дом: Аалы Токомбаева 21/5А"
@@ -2353,7 +2398,7 @@ export default function PropertiesList({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Застройщик</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Застройщик</label>
                       <input
                         type="text" placeholder="Например: Helvetia Development AG"
                         value={formData.developer || ''} onChange={(e) => setFormData({...formData, developer: e.target.value})}
@@ -2361,7 +2406,7 @@ export default function PropertiesList({
                       />
                     </div>
                     <div>
-                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Этажность</label>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Этажность</label>
                       <input
                         type="number" min="1" placeholder="Например: 5"
                         value={formData.floors ?? ''} onChange={(e) => setFormData({...formData, floors: e.target.value})}
@@ -2376,7 +2421,7 @@ export default function PropertiesList({
                   {isBuildingForm && (
                     <div className="space-y-4 border border-gray-100 rounded p-3 bg-[#FAF8F3]/40">
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Здание</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Здание</label>
                         <div className="flex flex-wrap gap-2">
                           {BUILD_STATUSES.map(({ value, label }) => {
                             const active = formData.buildStatus === value;
@@ -2400,7 +2445,7 @@ export default function PropertiesList({
                       {formData.buildStatus === 'under_construction' && (
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Стадия стройки</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1.5">Стадия стройки</label>
                             <select
                               value={formData.constructionStage || ''}
                               onChange={(e) => setFormData({ ...formData, constructionStage: e.target.value })}
@@ -2416,7 +2461,7 @@ export default function PropertiesList({
                             </select>
                           </div>
                           <div>
-                            <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Окончание стройки</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1.5">Окончание стройки</label>
                             <input
                               type="date"
                               value={formData.plannedCompletionDate || ''}
@@ -2425,7 +2470,7 @@ export default function PropertiesList({
                             />
                           </div>
                           <div>
-                            <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Точность срока</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1.5">Точность срока</label>
                             <select
                               value={formData.plannedCompletionPrecision || 'day'}
                               onChange={(e) => setFormData({ ...formData, plannedCompletionPrecision: e.target.value })}
@@ -2441,7 +2486,7 @@ export default function PropertiesList({
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Общая площадь здания, м²</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">Общая площадь здания, м²</label>
                           <input
                             type="number" min="0" step="0.01" placeholder="Например: 19545.70"
                             value={formData.buildingTotalAreaSqM ?? ''}
@@ -2450,7 +2495,7 @@ export default function PropertiesList({
                           />
                         </div>
                         <div>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">
                             {formData.buildStatus === 'under_construction' ? 'Предусмотрено проектом' : 'В здании есть'}
                           </label>
                           <div className="flex flex-wrap gap-x-4 gap-y-2 pt-2">
@@ -2471,7 +2516,7 @@ export default function PropertiesList({
 
                       {/* Тот же трёхпозиционный выбор, что и у помещения: «не проверяли» — не «свободен». */}
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Обременения и аресты (по данным Кадастра)</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Обременения и аресты (по данным Кадастра)</label>
                         <div className="flex flex-wrap gap-2">
                           {ENCUMBRANCE_STATES.map(({ value, label, tone }) => {
                             const active = formData.isFreeOfEncumbrances === value;
@@ -2502,7 +2547,7 @@ export default function PropertiesList({
                   )}
 
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
                       {isBuildingForm ? 'Описание здания' : 'Описание помещения'}
                     </label>
                     <textarea
@@ -2514,12 +2559,14 @@ export default function PropertiesList({
                 </div>
                 )}
 
+                </div>
+                <div data-tab="main" className={formTab === 'main' ? 'space-y-5' : 'hidden'}>
                 {/* Status (экономика задаётся в параметрах выпуска). У здания своего статуса нет —
                     при правке здания он нужен только новым помещениям, если их добавляют. */}
                 {(formMode !== 'editBuilding' || formUnits.length > 0) && (
                 <div className="border-t border-gray-100 pt-4">
                   <div>
-                    <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
                       {formMode === 'editBuilding'
                         ? 'Стартовый статус новых помещений'
                         : formMode === 'create' || formMode === 'addUnits'
@@ -2539,11 +2586,13 @@ export default function PropertiesList({
                 </div>
                 )}
 
+                </div>
+                <div data-tab="units" className={formTab === 'units' ? 'space-y-5' : 'hidden'}>
                 {/* Помещения, которые уже есть в здании, — при его правке. Каждое правится своей
                     формой: у помещения свой выпуск, свои фото и документы. */}
                 {formMode === 'editBuilding' && (
                   <div className="border-t border-gray-100 pt-4">
-                    <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                    <span className="block text-sm font-semibold text-gray-900 mb-2">
                       Помещения в здании ({editBuildingUnits.length})
                     </span>
                     {editBuildingUnits.length === 0 ? (
@@ -2576,15 +2625,17 @@ export default function PropertiesList({
                   </div>
                 )}
 
+                </div>
+                <div data-tab="units" className={formTab === 'units' ? 'space-y-5' : 'hidden'}>
                 {/* Помещения внутри здания. Каждое — отдельный выпуск токенов на бэке. */}
                 {(formMode === 'create' || formMode === 'addUnits' || formMode === 'editBuilding') && (
                   <div className="border-t border-gray-100 pt-4">
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
-                        <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
+                        <span className="block text-sm font-semibold text-gray-900">
                           {formMode === 'create' ? 'Помещения в объекте (обязательно)' : 'Новые помещения'}
                         </span>
-                        <p className="text-[9px] text-gray-400 font-mono mt-1">
+                        <p className="text-xs text-gray-500 mt-1">
                           {formMode !== 'create'
                             ? 'Добавятся к тем, что уже есть в здании. Город, застройщик, стадия и галочки берутся из карточки здания.'
                             : 'Здание само токенов не выпускает — выпуск идёт на каждую квартиру и гараж отдельно.'}
@@ -2637,12 +2688,14 @@ export default function PropertiesList({
                   </div>
                 )}
 
+                </div>
+                <div data-tab="main" className={formTab === 'main' ? 'space-y-5' : 'hidden'}>
                 {/* Условия выпуска. Меняются, пока помещение в черновике или «скоро» и ничего не
                     продано; после открытия продаж — только просмотр: это условия, на которых
                     уже покупают. Разрешение приходит с бэкенда (issueTermsEditable). */}
                 {formMode === 'edit' && (
                   <div className="border-t border-gray-100 pt-4 space-y-3">
-                    <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
+                    <span className="block text-sm font-semibold text-gray-900">
                       Условия выпуска
                     </span>
                     {!formData.issueTermsEditable && (
@@ -2658,7 +2711,7 @@ export default function PropertiesList({
                         { key: 'minPurchaseTokens', label: 'Мин. покупка, токенов', step: '1' },
                       ].map(({ key, label, step }) => (
                         <div key={key}>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">{label}</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">{label}</label>
                           <input
                             type="number" min={key === 'minPurchaseTokens' || key === 'totalTokens' ? 1 : 0} step={step}
                             disabled={!formData.issueTermsEditable}
@@ -2675,16 +2728,18 @@ export default function PropertiesList({
                   </div>
                 )}
 
+                </div>
+                <div data-tab="specs" className={formTab === 'specs' ? 'space-y-5' : 'hidden'}>
                 {/* Характеристики помещения — при редактировании отдельного выпуска. */}
                 {formMode === 'edit' && (
                   <div className="border-t border-gray-100 pt-4 space-y-3">
-                    <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider">
+                    <span className="block text-sm font-semibold text-gray-900">
                       Характеристики помещения
                     </span>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Тип</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Тип</label>
                         <select
                           value={formData.unitType || ''}
                           onChange={(e) => setFormData({ ...formData, unitType: e.target.value })}
@@ -2697,7 +2752,7 @@ export default function PropertiesList({
                         </select>
                       </div>
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Номер</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Номер</label>
                         <input
                           type="text" placeholder="12 / Г-4"
                           value={formData.unitNumber || ''}
@@ -2706,7 +2761,7 @@ export default function PropertiesList({
                         />
                       </div>
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Этаж</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Этаж</label>
                         <input
                           type="number"
                           value={formData.floorNumber ?? ''}
@@ -2716,7 +2771,7 @@ export default function PropertiesList({
                       </div>
                       {!isParkingUnitType(formData.unitType) && (
                         <div>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Комнатность</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">Комнатность</label>
                           <select
                             value={formData.roomCount ?? ''}
                             onChange={(e) => setFormData({ ...formData, roomCount: e.target.value })}
@@ -2735,7 +2790,7 @@ export default function PropertiesList({
                     {isParkingUnitType(formData.unitType) && (
                       <div className="grid grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Секция / блок</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">Секция / блок</label>
                           <input
                             type="text" placeholder="B"
                             value={formData.section || ''}
@@ -2744,7 +2799,7 @@ export default function PropertiesList({
                           />
                         </div>
                         <div>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Ряд</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">Ряд</label>
                           <input
                             type="text" placeholder="12"
                             value={formData.row || ''}
@@ -2753,7 +2808,7 @@ export default function PropertiesList({
                           />
                         </div>
                         <div>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Место</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">Место</label>
                           <input
                             type="text" placeholder="125"
                             value={formData.spot || ''}
@@ -2766,7 +2821,7 @@ export default function PropertiesList({
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Общая площадь, м²</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Общая площадь, м²</label>
                         <input
                           type="number" min="0" step="0.01" placeholder="128.82"
                           value={formData.totalAreaSqM ?? ''}
@@ -2775,7 +2830,7 @@ export default function PropertiesList({
                         />
                       </div>
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Полезная площадь, м²</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Полезная площадь, м²</label>
                         {/* Бэкенд отклонит полезную больше общей — предупреждаем на месте ввода. */}
                         <input
                           type="number" min="0" step="0.01" placeholder="112.40"
@@ -2797,7 +2852,7 @@ export default function PropertiesList({
                         есть на руках, и дополняется по мере поступления от собственника. */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="sm:col-span-3">
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Назначение по документам</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Назначение по документам</label>
                         <input
                           type="text" placeholder="Под индивидуальное жилищное строительство"
                           maxLength={256}
@@ -2808,7 +2863,7 @@ export default function PropertiesList({
                       </div>
                       {PROPERTY_CHARACTERISTICS.map(({ key, label, placeholder, maxLength }) => (
                         <div key={key}>
-                          <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">{label}</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1.5">{label}</label>
                           <input
                             type="text" placeholder={placeholder} maxLength={maxLength}
                             value={formData[key] ?? ''}
@@ -2818,7 +2873,7 @@ export default function PropertiesList({
                         </div>
                       ))}
                       <div className="sm:col-span-3">
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Район и окружение</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Район и окружение</label>
                         <textarea
                           rows={3}
                           placeholder="Южная часть города, рядом центральные инфраструктуры, транспортная доступность…"
@@ -2829,7 +2884,7 @@ export default function PropertiesList({
                         />
                       </div>
                       <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Периодичность выплат</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Периодичность выплат</label>
                         <select
                           value={formData.payoutFrequency ?? ''}
                           onChange={(e) => setFormData({ ...formData, payoutFrequency: e.target.value })}
@@ -2842,114 +2897,11 @@ export default function PropertiesList({
                       </div>
                     </div>
 
-                    {/* Участок и кадастр — то, чем объект опознаётся и сверяется с Кадастром. */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Идент. код участка</label>
-                        {/* Код — у участка, кадастровый номер — у построенного объекта. */}
-                        <input
-                          type="text" placeholder="1-04-13-0033-0135"
-                          value={formData.landPlotCode ?? ''}
-                          onChange={(e) => setFormData({ ...formData, landPlotCode: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Кадастровый номер</label>
-                        <input
-                          type="text" placeholder="есть у построенного объекта"
-                          value={formData.cadastralNumber ?? ''}
-                          onChange={(e) => setFormData({ ...formData, cadastralNumber: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Площадь участка, га</label>
-                        <input
-                          type="number" min="0" step="0.0001" placeholder="0.72"
-                          value={formData.landAreaHectares ?? ''}
-                          onChange={(e) => setFormData({ ...formData, landAreaHectares: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Стадия</label>
-                        <select
-                          value={formData.constructionStage ?? ''}
-                          onChange={(e) => setFormData({ ...formData, constructionStage: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                        >
-                          <option value="">Не указана</option>
-                          {Object.entries(CONSTRUCTION_STAGE_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Плановый ввод</label>
-                        <input
-                          type="date"
-                          value={formData.plannedCompletionDate ?? ''}
-                          onChange={(e) => setFormData({ ...formData, plannedCompletionDate: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Точность срока</label>
-                        <select
-                          value={formData.plannedCompletionPrecision || 'day'}
-                          onChange={(e) => setFormData({ ...formData, plannedCompletionPrecision: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
-                        >
-                          {COMPLETION_PRECISIONS.map(({ value, label }) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Готовность, %</label>
-                        <input
-                          type="number" min="0" max="100" step="1" placeholder="0"
-                          value={formData.readinessPercent ?? ''}
-                          onChange={(e) => setFormData({ ...formData, readinessPercent: e.target.value })}
-                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Проверка Кадастра: «не проверяли» — отдельное состояние, а не отсутствие
-                        галочки, чтобы объект по умолчанию не заявлял, что он свободен. */}
-                    <div>
-                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">Обременения и аресты (по данным Кадастра)</label>
-                      <div className="flex flex-wrap gap-2">
-                        {ENCUMBRANCE_STATES.map(({ value, label, tone }) => {
-                          const active = formData.isFreeOfEncumbrances === value;
-                          return (
-                            <button
-                              key={String(value)}
-                              type="button"
-                              onClick={() => setFormData({ ...formData, isFreeOfEncumbrances: value })}
-                              className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
-                                active ? tone : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {formData.encumbranceCheckedAtUtc && formData.isFreeOfEncumbrances != null && (
-                        <p className="mt-1 text-[9px] font-mono text-gray-400">
-                          Проверено: {new Date(formData.encumbranceCheckedAtUtc).toLocaleDateString('ru-RU')}
-                        </p>
-                      )}
-                    </div>
-
                     {/* Разбивка по помещениям: список заменяется целиком при сохранении. */}
                     {!isParkingUnitType(formData.unitType) && (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
+                          <span className="text-xs font-medium text-gray-600">
                             Разбивка по помещениям
                           </span>
                           <span className="text-[9px] font-mono text-gray-500">
@@ -3007,10 +2959,121 @@ export default function PropertiesList({
                   </div>
                 )}
 
+                </div>
+                <div data-tab="cadastre" className={formTab === 'cadastre' ? 'space-y-5' : 'hidden'}>
+                {formMode === 'edit' && (
+                  <div className="space-y-4">
+                    {/* Участок и кадастр — то, чем объект опознаётся и сверяется с Кадастром. */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Идент. код участка</label>
+                        {/* Код — у участка, кадастровый номер — у построенного объекта. */}
+                        <input
+                          type="text" placeholder="1-04-13-0033-0135"
+                          value={formData.landPlotCode ?? ''}
+                          onChange={(e) => setFormData({ ...formData, landPlotCode: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Кадастровый номер</label>
+                        <input
+                          type="text" placeholder="есть у построенного объекта"
+                          value={formData.cadastralNumber ?? ''}
+                          onChange={(e) => setFormData({ ...formData, cadastralNumber: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Площадь участка, га</label>
+                        <input
+                          type="number" min="0" step="0.0001" placeholder="0.72"
+                          value={formData.landAreaHectares ?? ''}
+                          onChange={(e) => setFormData({ ...formData, landAreaHectares: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Стадия</label>
+                        <select
+                          value={formData.constructionStage ?? ''}
+                          onChange={(e) => setFormData({ ...formData, constructionStage: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                        >
+                          <option value="">Не указана</option>
+                          {Object.entries(CONSTRUCTION_STAGE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Плановый ввод</label>
+                        <input
+                          type="date"
+                          value={formData.plannedCompletionDate ?? ''}
+                          onChange={(e) => setFormData({ ...formData, plannedCompletionDate: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Точность срока</label>
+                        <select
+                          value={formData.plannedCompletionPrecision || 'day'}
+                          onChange={(e) => setFormData({ ...formData, plannedCompletionPrecision: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white"
+                        >
+                          {COMPLETION_PRECISIONS.map(({ value, label }) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1.5">Готовность, %</label>
+                        <input
+                          type="number" min="0" max="100" step="1" placeholder="0"
+                          value={formData.readinessPercent ?? ''}
+                          onChange={(e) => setFormData({ ...formData, readinessPercent: e.target.value })}
+                          className="w-full p-2 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-[#A38D6D] bg-white font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Проверка Кадастра: «не проверяли» — отдельное состояние, а не отсутствие
+                        галочки, чтобы объект по умолчанию не заявлял, что он свободен. */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">Обременения и аресты (по данным Кадастра)</label>
+                      <div className="flex flex-wrap gap-2">
+                        {ENCUMBRANCE_STATES.map(({ value, label, tone }) => {
+                          const active = formData.isFreeOfEncumbrances === value;
+                          return (
+                            <button
+                              key={String(value)}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, isFreeOfEncumbrances: value })}
+                              className={`px-3 py-1.5 rounded-sm border text-[9px] uppercase font-bold tracking-wider cursor-pointer ${
+                                active ? tone : 'border-gray-200 bg-white text-gray-400 hover:text-gray-600'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {formData.encumbranceCheckedAtUtc && formData.isFreeOfEncumbrances != null && (
+                        <p className="mt-1 text-[9px] font-mono text-gray-400">
+                          Проверено: {new Date(formData.encumbranceCheckedAtUtc).toLocaleDateString('ru-RU')}
+                        </p>
+                      )}
+                    </div>
+
+                  </div>
+                )}
+                </div>
+                <div data-tab="media" className={formTab === 'media' ? 'space-y-5' : 'hidden'}>
                 {/* Images Upload Area */}
                 {formMode !== 'addUnits' && formMode !== 'editBuilding' && (
                 <div className="border-t border-gray-100 pt-4">
-                  <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                  <span className="block text-sm font-semibold text-gray-900 mb-2">
                     {formMode === 'create' ? 'Фото здания' : 'Фото помещения'} (максимум {MAX_IMAGES})
                   </span>
                   
@@ -3103,19 +3166,21 @@ export default function PropertiesList({
                 </div>
                 )}
 
+                </div>
+                <div data-tab="media" className={formTab === 'media' ? 'space-y-5' : 'hidden'}>
                 {/* Documents attach area (available right at registration) — compact */}
                 {/* Общий пакет документов — только при регистрации здания. В режиме
                     «добавить помещения» документы прикладываются к каждому помещению отдельно. */}
                 {formMode !== 'addUnits' && (
                 <div className="border-t border-gray-100 pt-4">
-                  <span className="block text-[9px] uppercase font-bold text-[#A38D6D] tracking-wider mb-2">
+                  <span className="block text-sm font-semibold text-gray-900 mb-2">
                     Документы объекта
                   </span>
                   {/* При правке здания документы ложатся на выбранное помещение: бэкенд хранит их
                       на выпуске, не на здании. Нет помещений — уйдут к первому новому. */}
                   {formMode === 'editBuilding' && (
                     <div className="mb-2">
-                      <label className="block text-[9px] uppercase font-bold text-gray-400 tracking-wider mb-1">
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         Прикрепить к помещению
                       </label>
                       {editBuildingUnits.length > 0 ? (
@@ -3129,12 +3194,12 @@ export default function PropertiesList({
                           ))}
                         </select>
                       ) : (
-                        <p className="text-[9px] text-gray-400 font-mono">К первому новому помещению из списка выше.</p>
+                        <p className="text-xs text-gray-500">К первому новому помещению из списка выше.</p>
                       )}
                     </div>
                   )}
                   {formMode === 'create' && (
-                    <p className="text-[9px] text-gray-400 font-mono mb-2">
+                    <p className="text-xs text-gray-500 mb-2">
                       Хранятся на выпуске, а не на здании, поэтому прикрепляются к первому помещению
                       из списка.
                     </p>
@@ -3196,6 +3261,7 @@ export default function PropertiesList({
                 </div>
                 )}
 
+                </div>
                 {saving && saveProgress && (
                   <div className="text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded px-3 py-2">
                     {saveProgress}
@@ -3208,7 +3274,7 @@ export default function PropertiesList({
                   </div>
                 )}
 
-                <div className="flex gap-3 pt-4 border-t border-gray-150">
+                <div className="sticky bottom-0 -mx-6 -mb-6 px-6 py-4 bg-white flex gap-3 border-t border-gray-200 rounded-b-lg">
                   <button
                     type="button"
                     disabled={saving}

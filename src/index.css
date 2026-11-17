@@ -153,3 +153,11 @@ body {
     print-color-adjust: exact;
   }
 }
+
+/* Подсказки в формах — примеры, а не данные: бледнее и курсивом, чтобы пустое поле
+   не читалось как заполненное. */
+form input::placeholder,
+form textarea::placeholder {
+  color: #c2c2c2;
+  font-style: italic;
+}
