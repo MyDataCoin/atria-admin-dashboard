@@ -13,7 +13,8 @@ import {
   LogOut,
   Award,
   X,
-  HelpCircle
+  HelpCircle,
+  Coins
 } from 'lucide-react';
 
 export default function Sidebar({ 
@@ -35,6 +36,7 @@ export default function Sidebar({
     { id: 'properties', label: 'Объекты & Документы', icon: Building },
     { id: 'news', label: 'Финотчёты & Новости', icon: Newspaper },
     { id: 'applications', label: 'Заявки', icon: ClipboardList },
+    { id: 'crypto', label: 'Крипто-оплата', icon: Coins },
     { id: 'whitelist', label: 'Whitelist & Минт', icon: ListChecks },
     { id: 'registry', label: 'Реестр держателей', icon: Users2 },
     { id: 'operations', label: 'Операции в сети', icon: Cpu },

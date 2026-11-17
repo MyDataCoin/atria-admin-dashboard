@@ -63,6 +63,39 @@ function timeLeft(reservedUntilUtc) {
   return `${Math.max(1, Math.floor(ms / 60_000))} мин`;
 }
 
+/** Как оплачивается заявка: крипто-счёт (ждём / оплачен) или банковский перевод. */
+function PaymentLine({ invoice, status }) {
+  if (!invoice || invoice.status === 'cancelled') {
+    if (status !== 'Reserved') return null;
+    return (
+      <p className="rounded-lg bg-gray-50 border border-gray-100 px-3 py-2 text-xs text-gray-600">
+        Оплата: банковский перевод в сомах — сверьте поступление по выписке перед подтверждением.
+      </p>
+    );
+  }
+  const amount = `${Number(invoice.payAmount).toLocaleString('ru-RU', { minimumFractionDigits: 2 })} ${invoice.token} (${invoice.network})`;
+  if (invoice.status === 'paid') {
+    return (
+      <p className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2 text-xs text-emerald-800">
+        <span className="font-bold">Оплачено: </span>{amount}
+        {invoice.transactionUrl && (
+          <>
+            {' · '}
+            <a href={invoice.transactionUrl} target="_blank" rel="noopener noreferrer" className="underline">
+              транзакция
+            </a>
+          </>
+        )}
+      </p>
+    );
+  }
+  return (
+    <p className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800">
+      <span className="font-bold">Ждём оплату: </span>{amount} по курсу {invoice.rateKgs} сом
+    </p>
+  );
+}
+
 /**
  * The operator's application queue: confirm or decline with a reason, and see how long each
  * reservation is still held. An application creates itself in Reserved — nothing here starts
@@ -76,6 +109,7 @@ export default function Applications({ properties = [], investors = [], currency
   const [loadError, setLoadError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [invoices, setInvoices] = useState({});
 
   // The decline dialog: a reason is mandatory, so declining is never a bare click.
 
@@ -93,7 +127,19 @@ export default function Applications({ properties = [], investors = [], currency
     setLoading(true);
     setLoadError(null);
     try {
-      setApplications((await api.investments.list({ status: nextStatus || undefined, take: 200 })) ?? []);
+      const [apps, invs] = await Promise.all([
+        api.investments.list({ status: nextStatus || undefined, take: 200 }),
+        // Крипто-счета — чтобы оператор видел, пришли ли деньги, до того как подтверждать.
+        // Недоступность этого списка не должна прятать саму очередь.
+        api.payments.invoices().catch(() => []),
+      ]);
+      setApplications(apps ?? []);
+      const latest = {};
+      for (const inv of invs ?? []) {
+        const prev = latest[inv.investmentId];
+        if (!prev || new Date(inv.createdAtUtc) > new Date(prev.createdAtUtc)) latest[inv.investmentId] = inv;
+      }
+      setInvoices(latest);
     } catch (err) {
       setLoadError(err?.problem?.detail ?? err?.message ?? 'Не удалось загрузить заявки.');
     } finally {
@@ -287,6 +333,8 @@ export default function Applications({ properties = [], investors = [], currency
                     </div>
                   )}
                 </dl>
+
+                <PaymentLine invoice={invoices[app.id]} status={app.status} />
 
                 {app.status === 'Rejected' && (
                   <p className="rounded-lg bg-rose-50 border border-rose-100 px-3 py-2 text-xs text-rose-700">

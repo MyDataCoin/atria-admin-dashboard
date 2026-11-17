@@ -22,6 +22,7 @@ import NewsAndReports from './components/NewsAndReports';
 import ActivitiesTimeline from './components/ActivitiesTimeline';
 import SupportTickets from './components/SupportTickets';
 import Applications from './components/Applications';
+import CryptoPayments from './components/CryptoPayments';
 import HolderRegistry from './components/HolderRegistry';
 import Whitelist from './components/Whitelist';
 import BlockchainOperations from './components/BlockchainOperations';
@@ -375,6 +376,8 @@ export default function AdminApp({ currentUser, onLogout }) {
             onAddLog={handleAddAuditLog}
           />
         );
+      case 'crypto':
+        return <CryptoPayments onAddLog={handleAddAuditLog} />;
       case 'whitelist':
         // Read fresh from /whitelist on mount: requests are approved and batched while the screen
         // is open, and a batch must never be assembled against a stale queue.

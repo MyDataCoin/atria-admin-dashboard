@@ -216,6 +216,20 @@ export const buildings = {
     request(`/buildings/${id}/images/${imageId}`, { method: 'DELETE' }),
 };
 
+// ---- Crypto payments ------------------------------------------------------
+
+// Оплата в USDT (BEP-20, TRC-20) и KGST. Кошельки и курс USDT задаёт оператор; сервер сам
+// видит входящие переводы и помечает счёт оплаченным, а заявку подтверждают как обычно.
+export const payments = {
+  methods: () => request('/payments/methods'),
+  settings: () => request('/payments/settings'),
+  // { usdtRateKgs, bep20Address, trc20Address, kgstContractAddress } — пустое поле выключает метод.
+  saveSettings: (body) => request('/payments/settings', { method: 'PUT', body }),
+  invoices: (status) => request(`/payments/invoices${status ? `?status=${status}` : ''}`),
+  deposits: (unmatched = false) => request(`/payments/deposits${unmatched ? '?unmatched=true' : ''}`),
+  invoiceFor: (investmentId) => request(`/payments/investments/${investmentId}/invoice`),
+};
+
 // ---- Investments ----------------------------------------------------------
 
 export const investments = {
@@ -563,6 +577,7 @@ export const governance = {
 
 export default {
   auth,
+  payments,
   whitelist,
   blockchainOperations,
   properties,
