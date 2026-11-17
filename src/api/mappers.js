@@ -250,7 +250,9 @@ export function mapPlacementFromProperty(p) {
     tokenSupply,
     targetAmount: tokenSupply * tokenPrice,
     raisedAmount: sold * tokenPrice,
-    status: p.status === 'active' ? 'active' : p.status === 'archived' ? 'completed' : 'draft',
+    // coming_soon проходит как есть: раньше он сворачивался в draft, и сводка не могла его назвать.
+    status:
+      { active: 'active', archived: 'completed', coming_soon: 'coming_soon' }[p.status] ?? 'draft',
     investorsCount: 0, // not exposed by the API yet
     launchDate: '—',
     endDate: '—',

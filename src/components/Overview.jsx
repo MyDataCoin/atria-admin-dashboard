@@ -217,12 +217,25 @@ export default function Overview({
   const [openPropertyId, setOpenPropertyId] = useState(null);
   const openProperty = openPropertyId ? properties.find((p) => p.id === openPropertyId) : null;
 
-  const placementStatus = (status) =>
-    status === 'active'
-      ? { label: 'Выпуск идет', cls: 'bg-emerald-50 text-emerald-700' }
-      : status === 'paused'
-        ? { label: 'Приостановлен', cls: 'bg-amber-50 text-amber-700' }
-        : { label: 'Успешно закрыт', cls: 'bg-blue-50 text-blue-700' };
+  // «Закрыт» — только для реально завершённого выпуска. Раньше сюда падало всё, что не active
+  // и не paused, и объекты «скоро в продаже» и черновики показывались как успешно закрытые.
+  const placementStatus = (status) => {
+    switch (status) {
+      case 'active':
+        return { label: 'Выпуск идет', cls: 'bg-emerald-50 text-emerald-700' };
+      case 'paused':
+        return { label: 'Приостановлен', cls: 'bg-amber-50 text-amber-700' };
+      case 'coming_soon':
+        return { label: 'Скоро в продаже', cls: 'bg-gray-100 text-gray-700' };
+      case 'draft':
+        return { label: 'Черновик', cls: 'bg-gray-50 text-gray-500' };
+      case 'completed':
+      case 'archived':
+        return { label: 'Выпуск закрыт', cls: 'bg-blue-50 text-blue-700' };
+      default:
+        return { label: status || '—', cls: 'bg-gray-50 text-gray-500' };
+    }
+  };
 
   return (
     <div className="space-y-8 font-sans">
